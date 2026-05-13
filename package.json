@@ -9,7 +9,9 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "test:mocks": "tsx scripts/test-mocks.ts"
+    "test:mocks": "tsx scripts/test-mocks.ts",
+    "test:scenarios": "tsx scripts/scenarios.ts",
+    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios"
   },
   "dependencies": {
     "clsx": "^2.1.1",

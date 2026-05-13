@@ -2,7 +2,7 @@
 
 > Voice-first AI agent that turns "what's for dinner?" into action. Wired into [Swiggy MCP](https://mcp.swiggy.com/builders/docs/) (Food, Instamart, Dineout) with sub-second human-grade voice.
 
-**Status:** Step 1 / 10 — bootstrap complete.
+**Status:** Step 2 / 10 — mock data layer complete (35 tools, 79 PRD assertions green).
 
 ---
 
@@ -50,6 +50,33 @@ npm run dev
 
 Open <http://localhost:3000>.
 
+### Verifying the mock layer
+
+The mock data and its 35 tool implementations are continuously validated against the PRD. Two test scripts ship today:
+
+```bash
+npm run test:mocks       # smoke test: every tool returns a valid envelope (35/35)
+npm run test:scenarios   # PRD-aligned scenarios: 79 assertions across 12 flows
+npm test                 # typecheck + both of the above
+```
+
+`scripts/scenarios.ts` walks the actual user journeys from PRD §3.1-§3.4:
+
+| Scenario | What it proves |
+| --- | --- |
+| A | End-to-end Scout order: search → menu → variant+addon → coupon → place → track |
+| B | Deep menu parsing — "find spicy wings under ₹400" hits Truffles via its menu |
+| C | Multi-cart restaurant switch behaves as per docs (flush + new binding) |
+| D | ₹1000 cart cap is enforced; `place_food_order` returns `CART_CAP_EXCEEDED` |
+| E | Auditor recipe gap analysis + MVQ — onion picks 500g over 1kg |
+| F | ₹99 minimum order is enforced; bumps over min unlock checkout |
+| G | `your_go_to_items` one-tap reorder |
+| H | ±30 min slot flex — Negotiator finds 19:30 / 20:30 when 20:00 is blocked |
+| I | Fully-booked Toit → similar-vibes fallback to Toscano / Black Pearl in Indiranagar |
+| J | `book_table` non-idempotency — `get_booking_status` recovers on retry |
+| K | Voice-contract data hygiene — IDs strippable, prices integer, `*Spoken` digit-free |
+| L | Combined "plan my evening" demo flow (PRD §6) |
+
 ## Build plan
 
 See `.cursor/plans/kitchen_copilot_mvp_*.plan.md` for the full step-by-step plan. Each step ends in a commit + push. UI styling is handled in four Claude Code handoffs interleaved between steps.
@@ -57,7 +84,7 @@ See `.cursor/plans/kitchen_copilot_mvp_*.plan.md` for the full step-by-step plan
 | Step | What lands | Status |
 | --- | --- | --- |
 | 1 | Bootstrap + GitHub | ✓ |
-| 2 | Mock data for 35 tools | ✓ |
+| 2 | Mock data for 35 tools + 12 PRD scenario tests | ✓ |
 | 3 | Tool router (mock) | — |
 | 4 | OAuth + real MCP | — |
 | 5 | Voice session backend | — |

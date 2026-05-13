@@ -71,11 +71,29 @@ export async function search_restaurants(args: SearchRestaurantsArgs): Promise<S
   if (!args.query) return err("query is required");
 
   const q = args.query.toLowerCase();
-  const matches = seed.foodRestaurants.filter(
-    (r) =>
-      lowerIncludes(r.name, q) ||
-      r.cuisines.some((c) => lowerIncludes(c, q)),
-  );
+  const matches = seed.foodRestaurants.filter((r) => {
+    if (lowerIncludes(r.name, q)) return true;
+    if (r.cuisines.some((c) => lowerIncludes(c, q))) return true;
+    // Match on menu items — PRD §3.2 "find a place with spicy wings"
+    const menu = seed.menus[r.id];
+    if (!menu) return false;
+    return menu.categories.some((cat) =>
+      cat.items.some(
+        (item) =>
+          lowerIncludes(item.name, q) ||
+          lowerIncludes(item.description, q) ||
+          lowerIncludes(cat.name, q),
+      ),
+    );
+  });
+
+  // Mild ranking: open restaurants first, then by rating desc per docs guidance.
+  matches.sort((a, b) => {
+    if (a.availabilityStatus !== b.availabilityStatus) {
+      return a.availabilityStatus === "OPEN" ? -1 : 1;
+    }
+    return b.rating - a.rating;
+  });
 
   const offset = args.offset ?? 0;
   const page = matches.slice(offset, offset + PAGE_SIZE);
@@ -206,6 +224,7 @@ export async function update_food_cart(args: UpdateFoodCartArgs): Promise<Swiggy
       variantId: variant?.id,
       variantName: variant?.name,
       addOnIds: line.addOnIds,
+      addOnNames: addOns.length ? addOns.map((a) => a.name) : undefined,
       quantity: line.quantity,
       unitPrice,
       lineTotal: unitPrice * line.quantity,

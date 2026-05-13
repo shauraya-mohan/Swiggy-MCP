@@ -24,6 +24,17 @@ Tool schemas live under `/docs/reference/{food,instamart,dineout}`. Error codes 
 
 See [docs/Kitchen_Copilot_Full_Detailed_PRD.md](docs/Kitchen_Copilot_Full_Detailed_PRD.md) for the product spec and the matching plan in `.cursor/plans/`.
 
+## Where the product actually lives
+
+**The system prompt is the product.** Mocks, the tool router, and the voice plumbing are scaffolding — replaceable, finite, well-specified by the docs. The thing that turns 35 generic Swiggy tools into "Kitchen Copilot" is the system prompt fed to the OpenAI Realtime brain (and the per-module sub-prompts under `agent/modules/`).
+
+Implications for how we work:
+
+- **Don't try to encode behavior in mock fixtures.** User flows are infinite; we can't mock our way to coverage. Mocks only need to prove the data is *shaped* correctly for the agent to reason about. The PRD scenario tests in `scripts/scenarios.ts` are the floor for that, not a ceiling to expand.
+- **Edge cases live in the system prompt.** Multi-cart warnings, ±30 min slot flex, MVQ selection, similar-vibes fallback — these are prompt-level rules ("when X, do Y"), not mock-data conditionals. Code-side we only enforce *hard rails* the docs require (cart caps, min order, non-idempotency, voice-contract sanitization).
+- **When you change a tool's response shape, update the prompt.** The prompt teaches the model what fields to read and how. Drift here is silent breakage.
+- **Prompts live under version control alongside code.** `agent/prompts/*.md` is the source of truth — never edit only in console / playground.
+
 ## Voice contract (from Swiggy docs)
 
 When writing system prompts or response shaping:

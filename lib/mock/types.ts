@@ -87,6 +87,7 @@ export interface FoodCartItem {
   variantId?: string;
   variantName?: string;
   addOnIds?: string[];
+  addOnNames?: string[];
   quantity: number;
   unitPrice: number;
   lineTotal: number;

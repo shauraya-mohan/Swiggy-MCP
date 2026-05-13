@@ -79,7 +79,12 @@ export async function callMockTool(
     return err(`Tool "${tool}" not found on server "${server}"`, "UNKNOWN_TOOL");
   }
   try {
-    return await fn(args);
+    const result = await fn(args);
+    // Mirror real MCP wire behavior: the response is JSON-serialized over HTTP,
+    // so the caller can never receive a reference into our in-memory store.
+    // Without this, downstream code that snapshots a cart and then mutates it
+    // via another tool call would see the snapshot mutate too.
+    return JSON.parse(JSON.stringify(result)) as SwiggyResponse<unknown>;
   } catch (e) {
     const message = e instanceof Error ? e.message : "Unknown internal error";
     return err(message, "INTERNAL_ERROR");
