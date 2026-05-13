@@ -15,6 +15,7 @@
 import { callMockTool } from "../mock";
 import type { SwiggyResponse } from "../mock/types";
 import { err } from "../mock/helpers";
+import { callRealTool } from "./client";
 import { findTool, type ToolDef, type ToolServer } from "./manifest";
 
 export type Mode = "mock" | "real";
@@ -30,6 +31,12 @@ export interface RouterContext {
   mode?: Mode;
   /** Override for tests; defaults to LIVE_MUTATIONS env. */
   liveMutations?: boolean;
+  /**
+   * Swiggy MCP access token. Required in real mode; ignored in mock mode.
+   * Read from the swiggy_auth HttpOnly cookie by the /api/tools route
+   * handler, or passed explicitly by server-side callers.
+   */
+  accessToken?: string;
 }
 
 function getMode(ctx?: RouterContext): Mode {
@@ -84,11 +91,20 @@ export async function callTool<T = unknown>(
     return (await callMockTool(input.server, input.tool, input.args)) as SwiggyResponse<T>;
   }
 
-  // Real-MCP wiring lands in Step 4 (lib/mcp/client.ts + OAuth).
-  return err(
-    "Real Swiggy MCP client is not wired yet. Set SWIGGY_MODE=mock or wait for Step 4.",
-    "NOT_IMPLEMENTED",
-  );
+  // Real mode requires an access token from the OAuth flow.
+  if (!ctx?.accessToken) {
+    return err(
+      "Real mode requires a Swiggy access token. Sign in at /api/auth/swiggy/authorize.",
+      "UNAUTHENTICATED",
+    );
+  }
+
+  return await callRealTool<T>({
+    server: input.server,
+    tool: input.tool,
+    args: input.args ?? {},
+    accessToken: ctx.accessToken,
+  });
 }
 
 /**

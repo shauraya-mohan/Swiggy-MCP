@@ -9,8 +9,10 @@
 // receives a `tool_call` event, posts the args here, and feeds the result
 // back into the session via a `tool_call_output` event.
 
+import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
 import { callTool } from "../../../../../lib/mcp/router";
+import { AUTH_COOKIE, type AuthState } from "../../../../../lib/mcp/auth";
 import type { ToolServer } from "../../../../../lib/mcp/manifest";
 
 interface RouteParams {
@@ -48,7 +50,23 @@ export async function POST(req: Request, { params }: RouteParams) {
     }
   }
 
-  const result = await callTool({ server: server as ToolServer, tool, args });
+  // In real mode, fish the access token out of the HttpOnly auth cookie.
+  // Mock mode ignores this and serves from the in-memory store.
+  let accessToken: string | undefined;
+  const cookieStore = await cookies();
+  const authCookie = cookieStore.get(AUTH_COOKIE)?.value;
+  if (authCookie) {
+    try {
+      const parsed = JSON.parse(authCookie) as AuthState;
+      if (parsed.accessToken && parsed.expiresAt > Math.floor(Date.now() / 1000)) {
+        accessToken = parsed.accessToken;
+      }
+    } catch {
+      // bad/legacy cookie — ignore, behaves like signed-out
+    }
+  }
+
+  const result = await callTool({ server: server as ToolServer, tool, args }, { accessToken });
 
   // Validation / kill-switch errors deserve a 4xx so curl shows red.
   // Tool-internal errors (e.g. CART_CAP_EXCEEDED) stay 200 because the
@@ -59,7 +77,9 @@ export async function POST(req: Request, { params }: RouteParams) {
       ? 400
       : code === "DEMO_MODE_BLOCKED"
         ? 403
-        : 200;
+        : code === "UNAUTHENTICATED"
+          ? 401
+          : 200;
     return NextResponse.json(result, { status });
   }
 

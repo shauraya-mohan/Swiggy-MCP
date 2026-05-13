@@ -12,7 +12,8 @@
     "test:mocks": "tsx scripts/test-mocks.ts",
     "test:scenarios": "tsx scripts/scenarios.ts",
     "test:router": "tsx scripts/test-router.ts",
-    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router"
+    "test:auth": "tsx scripts/test-auth.ts",
+    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router && npm run test:auth"
   },
   "dependencies": {
     "clsx": "^2.1.1",

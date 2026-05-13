@@ -152,15 +152,15 @@ async function main() {
   // -------------------------------------------------------------------------
   // 4. Mode dispatch
   // -------------------------------------------------------------------------
-  section("Mode dispatch (mock works, real cleanly errors until Step 4)");
+  section("Mode dispatch (mock works; real needs a token)");
 
   const mockCall = await callTool({ server: "food", tool: "get_addresses", args: {} }, { mode: "mock" });
   assert(mockCall.success, "mock mode dispatches to the mock layer");
 
-  const realCall = await callTool({ server: "food", tool: "get_addresses", args: {} }, { mode: "real" });
-  assert(!realCall.success, "real mode currently errors (Step 4 lands the client)");
-  if (!realCall.success) {
-    assert(realCall.error.code === "NOT_IMPLEMENTED", "real mode uses NOT_IMPLEMENTED code", realCall.error.code);
+  const realNoToken = await callTool({ server: "food", tool: "get_addresses", args: {} }, { mode: "real" });
+  assert(!realNoToken.success, "real mode without a token is rejected");
+  if (!realNoToken.success) {
+    assert(realNoToken.error.code === "UNAUTHENTICATED", "real-mode no-token uses UNAUTHENTICATED", realNoToken.error.code);
   }
 
   // -------------------------------------------------------------------------
