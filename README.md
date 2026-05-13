@@ -56,8 +56,8 @@ See `.cursor/plans/kitchen_copilot_mvp_*.plan.md` for the full step-by-step plan
 
 | Step | What lands | Status |
 | --- | --- | --- |
-| 1 | Bootstrap + GitHub | ⏳ |
-| 2 | Mock data for 35 tools | — |
+| 1 | Bootstrap + GitHub | ✓ |
+| 2 | Mock data for 35 tools | ✓ |
 | 3 | Tool router (mock) | — |
 | 4 | OAuth + real MCP | — |
 | 5 | Voice session backend | — |
