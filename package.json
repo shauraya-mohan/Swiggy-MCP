@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "test:mocks": "tsx scripts/test-mocks.ts",
     "test:scenarios": "tsx scripts/scenarios.ts",
-    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios"
+    "test:router": "tsx scripts/test-router.ts",
+    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router"
   },
   "dependencies": {
     "clsx": "^2.1.1",

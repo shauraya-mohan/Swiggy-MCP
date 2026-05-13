@@ -2,7 +2,7 @@
 
 > Voice-first AI agent that turns "what's for dinner?" into action. Wired into [Swiggy MCP](https://mcp.swiggy.com/builders/docs/) (Food, Instamart, Dineout) with sub-second human-grade voice.
 
-**Status:** Step 2 / 10 — mock data layer complete (35 tools, 79 PRD assertions green).
+**Status:** Step 3 / 10 — tool router live; agent has a single typed entry point with kill-switch + HTTP surface.
 
 ---
 
@@ -57,7 +57,8 @@ The mock data and its 35 tool implementations are continuously validated against
 ```bash
 npm run test:mocks       # smoke test: every tool returns a valid envelope (35/35)
 npm run test:scenarios   # PRD-aligned scenarios: 79 assertions across 12 flows
-npm test                 # typecheck + both of the above
+npm run test:router      # router checks: manifest, validation, kill-switch (28 assertions)
+npm test                 # typecheck + all three suites
 ```
 
 `scripts/scenarios.ts` walks the actual user journeys from PRD §3.1-§3.4:
@@ -85,7 +86,7 @@ See `.cursor/plans/kitchen_copilot_mvp_*.plan.md` for the full step-by-step plan
 | --- | --- | --- |
 | 1 | Bootstrap + GitHub | ✓ |
 | 2 | Mock data for 35 tools + 12 PRD scenario tests | ✓ |
-| 3 | Tool router (mock) | — |
+| 3 | Tool router (mock) + `/api/tools/[server]/[tool]` HTTP surface | ✓ |
 | 4 | OAuth + real MCP | — |
 | 5 | Voice session backend | — |
 | 🎨 | VoiceOrb + Canvas chrome | — |
