@@ -1,0 +1,169 @@
+{
+  "res_001": {
+    "restaurantId": "res_001",
+    "restaurantName": "Biryani House",
+    "categories": [
+      {
+        "name": "Biryani",
+        "items": [
+          {
+            "id": "item_001",
+            "name": "Chicken Biryani",
+            "description": "Aromatic basmati rice cooked with tender chicken pieces in traditional Hyderabadi style.",
+            "price": 349,
+            "isVeg": false,
+            "category": "Biryani",
+            "rating": 4.6,
+            "variants": [
+              { "id": "var_001a", "name": "Regular", "priceDelta": 0 },
+              { "id": "var_001b", "name": "Family Pack", "priceDelta": 200 }
+            ],
+            "addOns": [
+              { "id": "addon_001", "name": "Extra Raita", "price": 30 },
+              { "id": "addon_002", "name": "Boiled Egg", "price": 25 }
+            ]
+          },
+          {
+            "id": "item_002",
+            "name": "Mutton Biryani",
+            "description": "Slow-cooked mutton with fragrant rice and saffron.",
+            "price": 449,
+            "isVeg": false,
+            "category": "Biryani",
+            "rating": 4.7
+          },
+          {
+            "id": "item_003",
+            "name": "Veg Biryani",
+            "description": "Mixed vegetables with basmati rice and aromatic spices.",
+            "price": 249,
+            "isVeg": true,
+            "category": "Biryani",
+            "rating": 4.2
+          }
+        ]
+      },
+      {
+        "name": "Sides",
+        "items": [
+          {
+            "id": "item_004",
+            "name": "Raita",
+            "description": "Cooling yogurt-based side.",
+            "price": 49,
+            "isVeg": true,
+            "category": "Sides"
+          },
+          {
+            "id": "item_005",
+            "name": "Mirchi Ka Salan",
+            "description": "Tangy chili curry, perfect with biryani.",
+            "price": 89,
+            "isVeg": true,
+            "category": "Sides"
+          }
+        ]
+      }
+    ]
+  },
+  "res_002": {
+    "restaurantId": "res_002",
+    "restaurantName": "Paradise Biryani",
+    "categories": [
+      {
+        "name": "Biryani",
+        "items": [
+          {
+            "id": "item_p001",
+            "name": "Paradise Special Chicken Biryani",
+            "description": "Their signature biryani with double chicken.",
+            "price": 399,
+            "isVeg": false,
+            "category": "Biryani",
+            "rating": 4.5
+          },
+          {
+            "id": "item_p002",
+            "name": "Mutton Dum Biryani",
+            "description": "Slow-cooked mutton in dum style.",
+            "price": 499,
+            "isVeg": false,
+            "category": "Biryani",
+            "rating": 4.6
+          }
+        ]
+      }
+    ]
+  },
+  "res_003": {
+    "restaurantId": "res_003",
+    "restaurantName": "Truffles",
+    "categories": [
+      {
+        "name": "Burgers",
+        "items": [
+          {
+            "id": "item_t001",
+            "name": "Truffles All American",
+            "description": "Beef patty, cheddar, lettuce, tomato, secret sauce.",
+            "price": 320,
+            "isVeg": false,
+            "category": "Burgers",
+            "rating": 4.7
+          },
+          {
+            "id": "item_t002",
+            "name": "Spicy Wings",
+            "description": "Crispy chicken wings tossed in hot sauce.",
+            "price": 280,
+            "isVeg": false,
+            "category": "Burgers",
+            "rating": 4.5
+          }
+        ]
+      }
+    ]
+  },
+  "res_006": {
+    "restaurantId": "res_006",
+    "restaurantName": "Gelato Italia",
+    "categories": [
+      {
+        "name": "Gelato",
+        "items": [
+          {
+            "id": "item_g001",
+            "name": "Tiramisu Gelato",
+            "description": "Classic Italian coffee-flavored gelato.",
+            "price": 180,
+            "isVeg": true,
+            "category": "Gelato",
+            "rating": 4.8,
+            "variants": [
+              { "id": "var_g001a", "name": "Single Scoop", "priceDelta": 0 },
+              { "id": "var_g001b", "name": "Double Scoop", "priceDelta": 80 }
+            ]
+          },
+          {
+            "id": "item_g002",
+            "name": "Pistachio Gelato",
+            "description": "Premium Sicilian pistachios.",
+            "price": 220,
+            "isVeg": true,
+            "category": "Gelato",
+            "rating": 4.9
+          },
+          {
+            "id": "item_g003",
+            "name": "Stracciatella",
+            "description": "Vanilla gelato with dark chocolate shavings.",
+            "price": 180,
+            "isVeg": true,
+            "category": "Gelato",
+            "rating": 4.7
+          }
+        ]
+      }
+    ]
+  }
+}

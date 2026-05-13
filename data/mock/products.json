@@ -1,0 +1,251 @@
+{
+  "products": [
+    {
+      "id": "prod_onion",
+      "name": "Onion",
+      "category": "Vegetables",
+      "rating": 4.3,
+      "variants": [
+        {
+          "spinId": "spin_onion_500g",
+          "name": "500g pack",
+          "quantity": { "value": 500, "unit": "g" },
+          "price": 30,
+          "mrp": 40,
+          "inStock": true
+        },
+        {
+          "spinId": "spin_onion_1kg",
+          "name": "1kg pack",
+          "quantity": { "value": 1, "unit": "kg" },
+          "price": 55,
+          "mrp": 70,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_tomato",
+      "name": "Tomato",
+      "category": "Vegetables",
+      "rating": 4.2,
+      "variants": [
+        {
+          "spinId": "spin_tomato_500g",
+          "name": "500g pack",
+          "quantity": { "value": 500, "unit": "g" },
+          "price": 35,
+          "mrp": 45,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_milk",
+      "name": "Milk",
+      "brand": "Amul Gold",
+      "category": "Dairy",
+      "rating": 4.6,
+      "variants": [
+        {
+          "spinId": "spin_milk_500ml",
+          "name": "500ml pack",
+          "quantity": { "value": 500, "unit": "ml" },
+          "price": 32,
+          "mrp": 35,
+          "inStock": true
+        },
+        {
+          "spinId": "spin_milk_1l",
+          "name": "1L pack",
+          "quantity": { "value": 1, "unit": "l" },
+          "price": 64,
+          "mrp": 70,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_butter",
+      "name": "Butter",
+      "brand": "Amul",
+      "category": "Dairy",
+      "rating": 4.7,
+      "variants": [
+        {
+          "spinId": "spin_butter_100g",
+          "name": "100g block",
+          "quantity": { "value": 100, "unit": "g" },
+          "price": 60,
+          "mrp": 62,
+          "inStock": true
+        },
+        {
+          "spinId": "spin_butter_500g",
+          "name": "500g block",
+          "quantity": { "value": 500, "unit": "g" },
+          "price": 290,
+          "mrp": 295,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_chicken",
+      "name": "Chicken Curry Cut",
+      "brand": "Licious",
+      "category": "Meat",
+      "rating": 4.5,
+      "variants": [
+        {
+          "spinId": "spin_chicken_500g",
+          "name": "500g pack",
+          "quantity": { "value": 500, "unit": "g" },
+          "price": 280,
+          "mrp": 320,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_paneer",
+      "name": "Paneer",
+      "brand": "Milky Mist",
+      "category": "Dairy",
+      "rating": 4.5,
+      "variants": [
+        {
+          "spinId": "spin_paneer_200g",
+          "name": "200g block",
+          "quantity": { "value": 200, "unit": "g" },
+          "price": 110,
+          "mrp": 120,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_ginger",
+      "name": "Ginger",
+      "category": "Vegetables",
+      "rating": 4.0,
+      "variants": [
+        {
+          "spinId": "spin_ginger_100g",
+          "name": "100g pack",
+          "quantity": { "value": 100, "unit": "g" },
+          "price": 25,
+          "mrp": 30,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_garlic",
+      "name": "Garlic",
+      "category": "Vegetables",
+      "rating": 4.1,
+      "variants": [
+        {
+          "spinId": "spin_garlic_100g",
+          "name": "100g pack",
+          "quantity": { "value": 100, "unit": "g" },
+          "price": 35,
+          "mrp": 40,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_cream",
+      "name": "Fresh Cream",
+      "brand": "Amul",
+      "category": "Dairy",
+      "rating": 4.4,
+      "variants": [
+        {
+          "spinId": "spin_cream_200ml",
+          "name": "200ml pack",
+          "quantity": { "value": 200, "unit": "ml" },
+          "price": 75,
+          "mrp": 80,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_banana",
+      "name": "Banana",
+      "category": "Fruits",
+      "rating": 4.2,
+      "variants": [
+        {
+          "spinId": "spin_banana_6pcs",
+          "name": "6 pieces",
+          "quantity": { "value": 6, "unit": "piece" },
+          "price": 50,
+          "mrp": 60,
+          "inStock": true
+        },
+        {
+          "spinId": "spin_banana_dozen",
+          "name": "Dozen",
+          "quantity": { "value": 12, "unit": "piece" },
+          "price": 90,
+          "mrp": 110,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_cilantro",
+      "name": "Cilantro",
+      "category": "Vegetables",
+      "rating": 4.0,
+      "variants": [
+        {
+          "spinId": "spin_cilantro_100g",
+          "name": "100g bunch",
+          "quantity": { "value": 100, "unit": "g" },
+          "price": 15,
+          "mrp": 20,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_yogurt",
+      "name": "Curd",
+      "brand": "Nandini",
+      "category": "Dairy",
+      "rating": 4.3,
+      "variants": [
+        {
+          "spinId": "spin_yogurt_400g",
+          "name": "400g cup",
+          "quantity": { "value": 400, "unit": "g" },
+          "price": 45,
+          "mrp": 50,
+          "inStock": true
+        }
+      ]
+    },
+    {
+      "id": "prod_basmati_rice",
+      "name": "Basmati Rice",
+      "brand": "India Gate",
+      "category": "Staples",
+      "rating": 4.6,
+      "variants": [
+        {
+          "spinId": "spin_rice_1kg",
+          "name": "1kg pack",
+          "quantity": { "value": 1, "unit": "kg" },
+          "price": 180,
+          "mrp": 220,
+          "inStock": true
+        }
+      ]
+    }
+  ]
+}

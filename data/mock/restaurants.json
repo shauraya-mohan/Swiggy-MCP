@@ -1,0 +1,100 @@
+{
+  "restaurants": [
+    {
+      "id": "res_001",
+      "name": "Biryani House",
+      "cuisines": ["Hyderabadi", "Biryani"],
+      "rating": 4.5,
+      "distanceKm": 2.1,
+      "deliveryTimeRange": "25-35 MIN",
+      "deliveryTimeSpoken": "about thirty minutes",
+      "availabilityStatus": "OPEN",
+      "priceForTwo": 400,
+      "imageUrl": "https://placehold.co/600x400/E37438/FFFFFF?text=Biryani+House"
+    },
+    {
+      "id": "res_002",
+      "name": "Paradise Biryani",
+      "cuisines": ["Hyderabadi", "Biryani"],
+      "rating": 4.3,
+      "distanceKm": 3.8,
+      "deliveryTimeRange": "35-45 MIN",
+      "deliveryTimeSpoken": "about forty minutes",
+      "availabilityStatus": "OPEN",
+      "priceForTwo": 500,
+      "imageUrl": "https://placehold.co/600x400/C0392B/FFFFFF?text=Paradise"
+    },
+    {
+      "id": "res_003",
+      "name": "Truffles",
+      "cuisines": ["American", "Burgers", "Continental"],
+      "rating": 4.6,
+      "distanceKm": 1.4,
+      "deliveryTimeRange": "20-30 MIN",
+      "deliveryTimeSpoken": "about twenty-five minutes",
+      "availabilityStatus": "OPEN",
+      "priceForTwo": 600,
+      "imageUrl": "https://placehold.co/600x400/784421/FFFFFF?text=Truffles"
+    },
+    {
+      "id": "res_004",
+      "name": "Mainland China",
+      "cuisines": ["Chinese", "Asian"],
+      "rating": 4.2,
+      "distanceKm": 4.5,
+      "deliveryTimeRange": "40-50 MIN",
+      "deliveryTimeSpoken": "about forty-five minutes",
+      "availabilityStatus": "OPEN",
+      "priceForTwo": 800,
+      "imageUrl": "https://placehold.co/600x400/8B0000/FFFFFF?text=Mainland"
+    },
+    {
+      "id": "res_005",
+      "name": "Punjab Grill",
+      "cuisines": ["North Indian", "Punjabi", "Mughlai"],
+      "rating": 4.4,
+      "distanceKm": 5.2,
+      "deliveryTimeRange": "45-55 MIN",
+      "deliveryTimeSpoken": "about fifty minutes",
+      "availabilityStatus": "OPEN",
+      "priceForTwo": 700,
+      "imageUrl": "https://placehold.co/600x400/2E7D32/FFFFFF?text=Punjab+Grill"
+    },
+    {
+      "id": "res_006",
+      "name": "Gelato Italia",
+      "cuisines": ["Italian", "Desserts", "Gelato"],
+      "rating": 4.7,
+      "distanceKm": 2.8,
+      "deliveryTimeRange": "25-35 MIN",
+      "deliveryTimeSpoken": "about thirty minutes",
+      "availabilityStatus": "OPEN",
+      "priceForTwo": 350,
+      "imageUrl": "https://placehold.co/600x400/E91E63/FFFFFF?text=Gelato"
+    },
+    {
+      "id": "res_007",
+      "name": "Meghana Foods",
+      "cuisines": ["Andhra", "Biryani", "South Indian"],
+      "rating": 4.5,
+      "distanceKm": 6.2,
+      "deliveryTimeRange": "50-60 MIN",
+      "deliveryTimeSpoken": "about fifty-five minutes",
+      "availabilityStatus": "OPEN",
+      "priceForTwo": 550,
+      "imageUrl": "https://placehold.co/600x400/F57C00/FFFFFF?text=Meghana"
+    },
+    {
+      "id": "res_008",
+      "name": "Burger King",
+      "cuisines": ["American", "Burgers", "Fast Food"],
+      "rating": 4.1,
+      "distanceKm": 3.2,
+      "deliveryTimeRange": "30-40 MIN",
+      "deliveryTimeSpoken": "about thirty-five minutes",
+      "availabilityStatus": "CLOSED",
+      "priceForTwo": 400,
+      "imageUrl": "https://placehold.co/600x400/D32F2F/FFFFFF?text=Burger+King"
+    }
+  ]
+}

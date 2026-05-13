@@ -1,0 +1,8 @@
+{
+  "items": [
+    { "spinId": "spin_milk_1l", "productName": "Milk", "variantName": "1L pack", "price": 64, "orderCount": 23 },
+    { "spinId": "spin_butter_100g", "productName": "Butter", "variantName": "100g block", "price": 60, "orderCount": 15 },
+    { "spinId": "spin_banana_6pcs", "productName": "Banana", "variantName": "6 pieces", "price": 50, "orderCount": 12 },
+    { "spinId": "spin_yogurt_400g", "productName": "Curd", "variantName": "400g cup", "price": 45, "orderCount": 8 }
+  ]
+}

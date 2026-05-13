@@ -1,0 +1,25 @@
+{
+  "coupons": [
+    {
+      "code": "WELCOME50",
+      "description": "₹50 off on orders above ₹200",
+      "discount": 50,
+      "minOrder": 200,
+      "requiresOnlinePayment": false
+    },
+    {
+      "code": "FOODIE100",
+      "description": "Flat ₹100 off on orders above ₹500",
+      "discount": 100,
+      "minOrder": 500,
+      "requiresOnlinePayment": false
+    },
+    {
+      "code": "ONLINE150",
+      "description": "₹150 off on online payment, orders above ₹400",
+      "discount": 150,
+      "minOrder": 400,
+      "requiresOnlinePayment": true
+    }
+  ]
+}

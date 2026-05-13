@@ -1,0 +1,6 @@
+{
+  "locations": [
+    { "id": "loc_001", "label": "Home", "lat": 12.9716, "lng": 77.6411, "area": "Indiranagar" },
+    { "id": "loc_002", "label": "Work", "lat": 12.9279, "lng": 77.6271, "area": "Koramangala" }
+  ]
+}
