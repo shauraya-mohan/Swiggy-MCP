@@ -36,10 +36,19 @@ export interface LiveProviderState {
   manifest: AgentManifest;
   startSession: () => Promise<void>;
   endSession: () => Promise<void>;
+  /** Push-to-talk: open the floor. Enables mic, clears the input buffer,
+   *  flips aura → listening. */
+  startListening: () => void;
+  /** Push-to-talk: close the floor. Disables mic, commits the buffer,
+   *  asks the model to respond, flips aura → thinking. */
+  stopListening: () => void;
+  /** Cancel an in-progress response (interrupt the agent mid-speech). */
+  interruptResponse: () => void;
   inboundAnalyser: AnalyserNode | null;
   outboundAnalyser: AnalyserNode | null;
   liveError: string | null;
   liveConnected: boolean;
+  isListening: boolean;
 }
 
 export function useLiveProvider(): LiveProviderState {
@@ -48,6 +57,7 @@ export function useLiveProvider(): LiveProviderState {
   const [liveConnected, setLiveConnected] = useState(false);
   const [inboundAnalyser, setInboundAnalyser] = useState<AnalyserNode | null>(null);
   const [outboundAnalyser, setOutboundAnalyser] = useState<AnalyserNode | null>(null);
+  const [isListening, setIsListening] = useState(false);
 
   // Mutable session refs — kept out of React state to avoid stale closures
   // during the event loop. We never re-create the session on re-render.
@@ -56,9 +66,17 @@ export function useLiveProvider(): LiveProviderState {
   const startingRef = useRef<boolean>(false);
 
   const applyEvent = useCallback((event: RealtimeServerEvent) => {
-    const next = reduceEvent(sessionStateRef.current, event);
-    sessionStateRef.current = next;
-    setManifest({ ...next.manifest });
+    // Reducer is meant to be pure; if it ever throws (malformed event from
+    // upstream, schema drift), don't take down the session — log it and keep
+    // going. The Aura/transcript stay on whatever the last good state was.
+    try {
+      const next = reduceEvent(sessionStateRef.current, event);
+      sessionStateRef.current = next;
+      setManifest({ ...next.manifest });
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "Reducer error";
+      console.warn("[live] reduceEvent failed for", event.type, "—", message);
+    }
   }, []);
 
   const handleToolCall = useCallback(
@@ -173,15 +191,63 @@ export function useLiveProvider(): LiveProviderState {
     setInboundAnalyser(null);
     setOutboundAnalyser(null);
     setLiveConnected(false);
+    setIsListening(false);
   }, []);
+
+  // ---- Push-to-talk turn control ----
+  //
+  // Manual turn-taking eliminates three classes of bug:
+  //   1. Server VAD chopping the transcript on natural pauses.
+  //   2. interrupt_response self-canceling when the agent's own audio leaks
+  //      into the mic (laptop speakers → built-in mic on the same machine).
+  //   3. The model auto-responding before the user has finished thinking.
+
+  const patchManifest = useCallback((patch: Partial<AgentManifest>) => {
+    sessionStateRef.current = {
+      ...sessionStateRef.current,
+      manifest: { ...sessionStateRef.current.manifest, ...patch },
+    };
+    setManifest({ ...sessionStateRef.current.manifest });
+  }, []);
+
+  const startListening = useCallback(() => {
+    const handle = sessionRef.current;
+    if (!handle) return;
+    handle.setMicEnabled(true);
+    handle.send({ type: "input_audio_buffer.clear" });
+    // Reset transcripts for the new utterance so the bubble starts empty.
+    patchManifest({ aura: "listening", userSays: "", agentSays: undefined });
+    setIsListening(true);
+  }, [patchManifest]);
+
+  const stopListening = useCallback(() => {
+    const handle = sessionRef.current;
+    if (!handle) return;
+    handle.setMicEnabled(false);
+    handle.send({ type: "input_audio_buffer.commit" });
+    handle.send({ type: "response.create" });
+    patchManifest({ aura: "thinking" });
+    setIsListening(false);
+  }, [patchManifest]);
+
+  const interruptResponse = useCallback(() => {
+    const handle = sessionRef.current;
+    if (!handle) return;
+    handle.send({ type: "response.cancel" });
+    patchManifest({ aura: "idle" });
+  }, [patchManifest]);
 
   return {
     manifest,
     startSession,
     endSession,
+    startListening,
+    stopListening,
+    interruptResponse,
     inboundAnalyser,
     outboundAnalyser,
     liveError,
     liveConnected,
+    isListening,
   };
 }

@@ -117,6 +117,14 @@ export interface AgentManifestProvider {
   liveError?: string | null;
   /** Live mode only — true while the WebRTC connection is up. */
   liveConnected?: boolean;
+  /** Live mode only — true while the user has the floor (mic enabled). */
+  isListening?: boolean;
+  /** Live mode only — open the floor. No-op in demo. */
+  startListening?: () => void;
+  /** Live mode only — close the floor, commit, ask the model to respond. */
+  stopListening?: () => void;
+  /** Live mode only — cancel an in-progress agent response. */
+  interruptResponse?: () => void;
 }
 
 export const IDLE_MANIFEST: AgentManifest = {

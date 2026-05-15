@@ -31,6 +31,17 @@ export type RealtimeVoice =
  */
 export type RealtimeModality = "audio" | "text";
 
+/**
+ * Turn-taking mode:
+ *  - "manual"     : no server VAD, client commits the audio buffer via
+ *                   `input_audio_buffer.commit` + `response.create`. Best for
+ *                   a deliberate tap-to-talk UX. The model never auto-responds
+ *                   and never self-interrupts on echo bleed.
+ *  - "server_vad" : OpenAI detects turn boundaries from silence. Hands-free
+ *                   but very sensitive to background noise / speaker bleed.
+ */
+export type TurnDetection = "manual" | "server_vad";
+
 export interface SessionConfigOptions {
   /** Default ["audio"]. Flip to ["text"] when Cartesia TTS lands in Step 7. */
   outputModalities?: RealtimeModality[];
@@ -39,6 +50,8 @@ export interface SessionConfigOptions {
   speed?: number;
   /** Seconds the client secret is valid for. 10..7200. */
   ttlSeconds?: number;
+  /** Default "manual". See TurnDetection for the trade-off. */
+  turnDetection?: TurnDetection;
 }
 
 let cachedPrompt: string | null = null;
@@ -55,6 +68,17 @@ export function loadSystemPrompt(): string {
 // GA shape — exactly matches POST /v1/realtime/client_secrets body
 // =========================================================================
 
+export type TurnDetectionConfig =
+  | null
+  | {
+      type: "server_vad";
+      threshold: number;
+      prefix_padding_ms: number;
+      silence_duration_ms: number;
+      create_response: boolean;
+      interrupt_response: boolean;
+    };
+
 export interface ClientSecretRequest {
   expires_after?: { anchor: "created_at"; seconds: number };
   session: {
@@ -67,14 +91,8 @@ export interface ClientSecretRequest {
     audio: {
       input: {
         transcription: { model: string };
-        turn_detection: {
-          type: "server_vad";
-          threshold: number;
-          prefix_padding_ms: number;
-          silence_duration_ms: number;
-          create_response: boolean;
-          interrupt_response: boolean;
-        };
+        /** `null` = manual turn-taking; client commits the buffer itself. */
+        turn_detection: TurnDetectionConfig;
         noise_reduction: { type: "near_field" | "far_field" };
       };
       output: {
@@ -86,6 +104,24 @@ export interface ClientSecretRequest {
 }
 
 export function buildSessionConfig(opts: SessionConfigOptions = {}): ClientSecretRequest {
+  const mode: TurnDetection = opts.turnDetection ?? "manual";
+
+  // Push-to-talk default: no server VAD, no auto-response, no echo-driven
+  // self-interrupt. The client commits the audio buffer when the user
+  // releases the talk button. Flip to "server_vad" once the UX matures.
+  const turnDetection: TurnDetectionConfig =
+    mode === "manual"
+      ? null
+      : {
+          type: "server_vad",
+          threshold: 0.5,
+          prefix_padding_ms: 300,
+          silence_duration_ms: 500,
+          create_response: true,
+          // Yields mid-sentence when the user starts talking. Pairs with VAD.
+          interrupt_response: true,
+        };
+
   return {
     expires_after: {
       anchor: "created_at",
@@ -109,15 +145,7 @@ export function buildSessionConfig(opts: SessionConfigOptions = {}): ClientSecre
             // whisper-1 and tuned for the realtime model.
             model: "gpt-realtime-whisper",
           },
-          turn_detection: {
-            type: "server_vad",
-            threshold: 0.5,
-            prefix_padding_ms: 300,
-            silence_duration_ms: 500,
-            create_response: true,
-            // The agent should yield mid-sentence when the user starts talking.
-            interrupt_response: true,
-          },
+          turn_detection: turnDetection,
           // The user is talking to a laptop/phone mic from across the kitchen —
           // far_field tolerates ambient noise (extractor fan, running water).
           noise_reduction: { type: "far_field" },

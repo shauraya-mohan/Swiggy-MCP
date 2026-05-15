@@ -43,6 +43,15 @@ export interface OpenSessionOptions {
 export interface SessionHandle {
   send: (event: RealtimeClientEvent) => void;
   close: () => Promise<void>;
+  /**
+   * Toggle the local mic track. In push-to-talk mode we keep the track
+   * disabled until the user explicitly opens the floor — this means no
+   * audio leaves the browser between turns, even though the WebRTC stream
+   * is still up. Cheaper than re-negotiating SDP each turn.
+   */
+  setMicEnabled: (on: boolean) => void;
+  /** Current mic enable state (mirrors the track flag). */
+  isMicEnabled: () => boolean;
 }
 
 export async function openRealtimeSession(opts: OpenSessionOptions): Promise<SessionHandle> {
@@ -94,7 +103,12 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     throw new Error(`Microphone access failed: ${message}`);
   }
 
+  // Push-to-talk default: mic track is added (so SDP includes it) but starts
+  // disabled so OpenAI receives silence until the user opts in. We don't tear
+  // the track down between turns; we just toggle .enabled — re-negotiating
+  // SDP per turn is far more expensive.
   for (const track of micStream.getTracks()) {
+    track.enabled = false;
     pc.addTrack(track, micStream);
   }
 
@@ -181,6 +195,17 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     dc.send(JSON.stringify(event));
   };
 
+  const setMicEnabled = (on: boolean) => {
+    for (const track of micStream.getTracks()) {
+      track.enabled = on;
+    }
+  };
+
+  const isMicEnabled = () => {
+    const tracks = micStream.getTracks();
+    return tracks.length > 0 && tracks.every((t) => t.enabled);
+  };
+
   const close = async () => {
     try {
       dc.close();
@@ -211,5 +236,5 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     inboundAnalyser = null;
   };
 
-  return { send, close };
+  return { send, close, setMicEnabled, isMicEnabled };
 }

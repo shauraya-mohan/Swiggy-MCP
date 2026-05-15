@@ -5,6 +5,7 @@ import { Aura } from "@/components/voice/Aura";
 import { TranscriptStream } from "@/components/voice/TranscriptStream";
 import { AgentCaption } from "@/components/voice/AgentCaption";
 import { IntentPillStrip } from "@/components/voice/IntentPill";
+import { VoiceButton, type VoiceButtonAction } from "@/components/voice/VoiceButton";
 import { RestaurantCard } from "@/components/cards/RestaurantCard";
 import { InstamartCard } from "@/components/cards/InstamartCard";
 import { DeliveryCard } from "@/components/cards/DeliveryCard";
@@ -110,23 +111,19 @@ export default function VoicePage() {
             inboundAnalyser={provider.inboundAnalyser ?? null}
             outboundAnalyser={provider.outboundAnalyser ?? null}
           />
+          {/* Transcript stays up through brief silences during a turn — the
+              old condition hid it on every speech_stopped event, which made
+              the bubble flicker in/out as deltas streamed in. Only the agent
+              actively speaking should hide the user's transcript. */}
           <TranscriptStream
-            key={`transcript-${manifest.userSays ?? ""}`}
             text={manifest.userSays}
-            active={
-              !!manifest.userSays &&
-              (effectiveAura === "listening" || effectiveAura === "idle")
-            }
+            active={!!manifest.userSays && effectiveAura !== "speaking"}
+            streaming={provider.mode === "live"}
           />
           <AgentCaption
-            key={manifest.agentSays /* remount → re-fade */}
             text={manifest.agentSays}
-            active={
-              !!manifest.agentSays &&
-              (effectiveAura === "speaking" ||
-                effectiveAura === "success" ||
-                effectiveAura === "thinking")
-            }
+            active={!!manifest.agentSays && effectiveAura === "speaking"}
+            streaming={provider.mode === "live"}
           />
         </div>
 
@@ -191,15 +188,45 @@ export default function VoicePage() {
           </div>
         )}
 
-        {/* Intent quick-jump strip */}
+        {/* Voice control + intent quick-jump strip — stacked at the bottom. */}
         <div
           style={{
             position: "absolute",
             bottom: 32,
             left: "50%",
             transform: "translateX(-50%)",
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            gap: 12,
           }}
         >
+          <VoiceButton
+            mode={provider.mode}
+            connected={!!provider.liveConnected}
+            isListening={!!provider.isListening}
+            auraState={effectiveAura}
+            error={provider.liveError ?? null}
+            onAction={(action: VoiceButtonAction) => {
+              switch (action) {
+                case "openSession":
+                  provider.setMode("live");
+                  return;
+                case "startListening":
+                  provider.startListening?.();
+                  return;
+                case "stopListening":
+                  provider.stopListening?.();
+                  return;
+                case "interrupt":
+                  provider.interruptResponse?.();
+                  return;
+                case "noop":
+                default:
+                  return;
+              }
+            }}
+          />
           <IntentPillStrip
             active={
               effectiveIntent === "idle" ? manifest.intent : effectiveIntent

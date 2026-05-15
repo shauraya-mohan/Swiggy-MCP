@@ -4,23 +4,42 @@ import { useEffect, useState } from "react";
 
 /**
  * TranscriptStream — user transcript bubble rising from the Aura.
- * Tokenises the line and animates each word in sequence (110ms cadence).
+ *
+ * Two render modes:
+ *   - Demo (default, `streaming={false}`): the parent gives a full sentence
+ *     up-front; we tokenize and animate each word in over 110ms — preserves
+ *     the prototype's word-by-word "rise + blur-up" choreography.
+ *   - Live (`streaming={true}`): the parent re-feeds an ever-growing string
+ *     as deltas arrive from OpenAI Realtime. We render text directly so the
+ *     bubble grows naturally as words land, with no setInterval-driven
+ *     animation restart on every keystroke. (Without this, every delta
+ *     resets the word-by-word interval and the user sees the whole final
+ *     transcript snap in at once.)
  *
  * Renders above the Aura; the parent positions it via absolute layout.
  */
 export function TranscriptStream({
   text,
   active,
+  streaming = false,
 }: {
   text?: string;
   active: boolean;
+  streaming?: boolean;
 }) {
   const [shown, setShown] = useState<string[]>([]);
 
-  // The parent gives this component a key derived from `text`, so we mount
-  // fresh on each new utterance — no reset of `shown` is needed in the effect.
+  // Demo mode: tokenize and animate. Live mode skips this entirely — we
+  // render `text` directly because OpenAI's streaming IS the animation.
   useEffect(() => {
-    if (!active || !text) return;
+    if (streaming) {
+      setShown([]);
+      return;
+    }
+    if (!active || !text) {
+      setShown([]);
+      return;
+    }
     const words = text.split(" ");
     let i = 0;
     const interval = setInterval(() => {
@@ -29,7 +48,7 @@ export function TranscriptStream({
       if (i >= words.length) clearInterval(interval);
     }, 110);
     return () => clearInterval(interval);
-  }, [text, active]);
+  }, [text, active, streaming]);
 
   if (!active || !text) return null;
 
@@ -73,19 +92,25 @@ export function TranscriptStream({
           textShadow: "0 0 24px rgba(252,128,25,0.25)",
         }}
       >
-        {shown.map((w, i) => (
-          <span
-            key={`${w}-${i}`}
-            className="transcript-line"
-            style={{
-              display: "inline-block",
-              marginRight: "0.32em",
-              animationDelay: `${i * 0.04}s`,
-            }}
-          >
-            {w}
-          </span>
-        ))}
+        {streaming ? (
+          // Live streaming: render text as one block. No per-word animation,
+          // no remount — the bubble grows in place as deltas arrive.
+          <span>{text}</span>
+        ) : (
+          shown.map((w, i) => (
+            <span
+              key={`${w}-${i}`}
+              className="transcript-line"
+              style={{
+                display: "inline-block",
+                marginRight: "0.32em",
+                animationDelay: `${i * 0.04}s`,
+              }}
+            >
+              {w}
+            </span>
+          ))
+        )}
         <span
           style={{
             display: "inline-block",

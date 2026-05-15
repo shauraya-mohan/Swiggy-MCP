@@ -115,8 +115,23 @@ async function main() {
 
   // Audio config
   assert(cfg.session.audio.input.transcription.model.length > 0, "transcription model set", cfg.session.audio.input.transcription.model);
-  assert(cfg.session.audio.input.turn_detection.type === "server_vad", "turn_detection is server_vad");
-  assert(cfg.session.audio.input.turn_detection.interrupt_response === true, "interrupt_response enabled (model yields mid-sentence)");
+  // Default is now "manual" (push-to-talk) — client commits the buffer itself.
+  assert(
+    cfg.session.audio.input.turn_detection === null,
+    "turn_detection defaults to null (manual / push-to-talk)",
+  );
+  // server_vad mode is still available via opts.turnDetection.
+  const vadCfg = buildSessionConfig({ turnDetection: "server_vad" });
+  assert(
+    vadCfg.session.audio.input.turn_detection !== null &&
+      vadCfg.session.audio.input.turn_detection.type === "server_vad",
+    "opting in to server_vad produces a server_vad turn_detection block",
+  );
+  assert(
+    vadCfg.session.audio.input.turn_detection !== null &&
+      vadCfg.session.audio.input.turn_detection.interrupt_response === true,
+    "server_vad mode keeps interrupt_response enabled",
+  );
   assert(cfg.session.audio.input.noise_reduction.type === "far_field", "noise reduction is far_field (kitchen-friendly)");
   assert(cfg.session.audio.output.voice.length > 0, "voice is set", cfg.session.audio.output.voice);
   assert(cfg.session.audio.output.speed >= 0.25 && cfg.session.audio.output.speed <= 1.5, "speed within OpenAI bounds", `${cfg.session.audio.output.speed}`);

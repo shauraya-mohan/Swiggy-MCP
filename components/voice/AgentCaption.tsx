@@ -1,9 +1,25 @@
 "use client";
 
 /**
- * AgentCaption — short copilot reply beneath the Aura. Fades in on demand.
+ * AgentCaption — short copilot reply beneath the Aura.
+ *
+ * Render modes:
+ *   - Demo (default): each new sentence triggers a fresh fade-in via a parent
+ *     `key` change.
+ *   - Live (`streaming={true}`): no fade animation on every delta — the
+ *     caption grows in place as transcript deltas arrive from OpenAI
+ *     Realtime. Without this, every delta restarts the fade-in animation and
+ *     the caption appears to flicker.
  */
-export function AgentCaption({ text, active }: { text?: string; active: boolean }) {
+export function AgentCaption({
+  text,
+  active,
+  streaming = false,
+}: {
+  text?: string;
+  active: boolean;
+  streaming?: boolean;
+}) {
   if (!active || !text) return null;
   return (
     <div
@@ -31,13 +47,12 @@ export function AgentCaption({ text, active }: { text?: string; active: boolean 
         COPILOT
       </div>
       <div
-        className="fade-in"
+        className={streaming ? undefined : "fade-in"}
         style={{
           fontSize: 14,
           lineHeight: 1.5,
           color: "var(--fg-dim)",
         }}
-        // Each new text gets a fresh fade-in by remounting via key from the parent.
       >
         {text}
       </div>

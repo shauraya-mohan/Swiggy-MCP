@@ -166,8 +166,13 @@ export const INITIAL_LIVE_STATE: LiveSessionState = {
  * Map tool names to intent. Heuristic — Step 8 will replace this with a
  * proper "module" abstraction in the system prompt that sets intent
  * explicitly. For now we infer from which Swiggy server the tool came from.
+ *
+ * Defensive: OpenAI sometimes emits follow-up function_call_arguments.delta
+ * events with just call_id + delta (no repeat of `name`). Returning null on
+ * missing input lets the reducer fall back to the previously-inferred intent.
  */
-export function intentFromToolName(toolName: string): IntentMode | null {
+export function intentFromToolName(toolName: string | undefined | null): IntentMode | null {
+  if (!toolName || typeof toolName !== "string") return null;
   if (toolName.startsWith("food__")) return "order";
   if (toolName.startsWith("im__")) return "cook";
   if (toolName.startsWith("dineout__")) return "dine";

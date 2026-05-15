@@ -70,5 +70,9 @@ export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManif
     outboundAnalyser: mode === "live" ? live.outboundAnalyser : null,
     liveError: mode === "live" ? live.liveError : null,
     liveConnected: mode === "live" ? live.liveConnected : false,
+    isListening: mode === "live" ? live.isListening : false,
+    startListening: live.startListening,
+    stopListening: live.stopListening,
+    interruptResponse: live.interruptResponse,
   };
 }
