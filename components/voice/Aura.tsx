@@ -21,27 +21,45 @@ interface StateRef {
   freq: number;
   time: number;
   success: number;
+  inboundAnalyser: AnalyserNode | null;
+  outboundAnalyser: AnalyserNode | null;
 }
 
 export function Aura({
   state = "idle",
   intent = "cook",
   size = 340,
+  inboundAnalyser = null,
+  outboundAnalyser = null,
 }: {
   state?: AuraState;
   intent?: IntentMode;
   size?: number;
+  /** When present and state==='speaking', use real freq data from agent audio. */
+  inboundAnalyser?: AnalyserNode | null;
+  /** When present and state==='listening', use real freq data from mic input. */
+  outboundAnalyser?: AnalyserNode | null;
 }) {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const stateRef = useRef<StateRef>({ state, intent, freq: 0, time: 0, success: 0 });
+  const stateRef = useRef<StateRef>({
+    state,
+    intent,
+    freq: 0,
+    time: 0,
+    success: 0,
+    inboundAnalyser,
+    outboundAnalyser,
+  });
 
   useEffect(() => {
     stateRef.current.state = state;
     stateRef.current.intent = intent;
+    stateRef.current.inboundAnalyser = inboundAnalyser;
+    stateRef.current.outboundAnalyser = outboundAnalyser;
     if (state === "success") {
       stateRef.current.success = 1;
     }
-  }, [state, intent]);
+  }, [state, intent, inboundAnalyser, outboundAnalyser]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -60,6 +78,9 @@ export function Aura({
     let raf = 0;
     const start = performance.now();
     const freqBins = new Array<number>(32).fill(0);
+    // Reusable byte buffer for AnalyserNode.getByteFrequencyData. Sized to
+    // freqBins.length (which matches the analyser's fftSize/2 = 32).
+    const analyserBuf = new Uint8Array(freqBins.length);
 
     const tick = (t: number) => {
       const elapsed = (t - start) / 1000;
@@ -68,23 +89,43 @@ export function Aura({
       const intentNow = stateRef.current.intent;
       const palette = INTENT_PALETTE[intentNow] ?? INTENT_PALETTE.cook;
 
-      for (let i = 0; i < freqBins.length; i++) {
-        let target = 0;
-        if (s === "listening") {
-          target =
-            (Math.sin(elapsed * 6 + i * 0.5) * 0.5 + 0.5) *
-            (Math.sin(elapsed * 11 + i * 0.2) * 0.4 + 0.6) *
-            0.9;
-        } else if (s === "speaking") {
-          target = (Math.sin(elapsed * 4 + i * 0.3) * 0.5 + 0.5) * 0.7;
-        } else if (s === "thinking") {
-          target = i < 8 ? (Math.sin(elapsed * 2 + i) * 0.5 + 0.5) * 0.4 : 0.05;
-        } else if (s === "idle") {
-          target = 0.18 + Math.sin(elapsed * 0.8 + i * 0.1) * 0.05;
-        } else if (s === "success") {
-          target = 0.5;
+      // Prefer real audio analyser data when the corresponding state is
+      // active and the analyser is wired up (live mode). Otherwise fall back
+      // to the Math.sin-driven targets (demo mode / no analyser yet).
+      const liveAnalyser =
+        s === "speaking"
+          ? stateRef.current.inboundAnalyser
+          : s === "listening"
+            ? stateRef.current.outboundAnalyser
+            : null;
+
+      if (liveAnalyser) {
+        // Real-time FFT: 0..255 bytes from the analyser. Normalise to 0..1
+        // and bias the curve a touch so quiet rooms still animate.
+        liveAnalyser.getByteFrequencyData(analyserBuf);
+        for (let i = 0; i < freqBins.length; i++) {
+          const target = Math.min(1, analyserBuf[i] / 200);
+          freqBins[i] += (target - freqBins[i]) * 0.3;
         }
-        freqBins[i] += (target - freqBins[i]) * 0.18;
+      } else {
+        for (let i = 0; i < freqBins.length; i++) {
+          let target = 0;
+          if (s === "listening") {
+            target =
+              (Math.sin(elapsed * 6 + i * 0.5) * 0.5 + 0.5) *
+              (Math.sin(elapsed * 11 + i * 0.2) * 0.4 + 0.6) *
+              0.9;
+          } else if (s === "speaking") {
+            target = (Math.sin(elapsed * 4 + i * 0.3) * 0.5 + 0.5) * 0.7;
+          } else if (s === "thinking") {
+            target = i < 8 ? (Math.sin(elapsed * 2 + i) * 0.5 + 0.5) * 0.4 : 0.05;
+          } else if (s === "idle") {
+            target = 0.18 + Math.sin(elapsed * 0.8 + i * 0.1) * 0.05;
+          } else if (s === "success") {
+            target = 0.5;
+          }
+          freqBins[i] += (target - freqBins[i]) * 0.18;
+        }
       }
 
       if (stateRef.current.success > 0) {

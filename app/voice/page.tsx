@@ -103,7 +103,13 @@ export default function VoicePage() {
             placeItems: "center",
           }}
         >
-          <Aura state={effectiveAura} intent={effectiveIntent} size={340} />
+          <Aura
+            state={effectiveAura}
+            intent={effectiveIntent}
+            size={340}
+            inboundAnalyser={provider.inboundAnalyser ?? null}
+            outboundAnalyser={provider.outboundAnalyser ?? null}
+          />
           <TranscriptStream
             key={`transcript-${manifest.userSays ?? ""}`}
             text={manifest.userSays}
@@ -201,6 +207,33 @@ export default function VoicePage() {
             onJump={provider.jumpToIntent}
           />
         </div>
+
+        {/* Live-mode status / error toast (top-right under step counter) */}
+        {provider.mode === "live" && (provider.liveError || provider.liveConnected) && (
+          <div
+            className="font-mono"
+            style={{
+              position: "absolute",
+              top: 76,
+              right: 32,
+              fontSize: 10,
+              letterSpacing: "0.18em",
+              textTransform: "uppercase",
+              padding: "6px 10px",
+              borderRadius: 999,
+              background: provider.liveError
+                ? "rgba(220, 60, 60, 0.18)"
+                : "rgba(80, 200, 120, 0.16)",
+              border: `1px solid ${
+                provider.liveError ? "rgba(220,60,60,0.4)" : "rgba(80,200,120,0.4)"
+              }`,
+              color: provider.liveError ? "#ffb4b4" : "#bdf0cf",
+              maxWidth: 320,
+            }}
+          >
+            {provider.liveError ? `Error: ${provider.liveError}` : "Live · connected"}
+          </div>
+        )}
 
         {/* Tweaks panel — floating bottom-right */}
         <TweaksPanel
