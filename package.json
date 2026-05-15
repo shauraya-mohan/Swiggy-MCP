@@ -14,7 +14,8 @@
     "test:router": "tsx scripts/test-router.ts",
     "test:auth": "tsx scripts/test-auth.ts",
     "test:voice": "tsx scripts/test-voice.ts",
-    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router && npm run test:auth && npm run test:voice"
+    "test:realtime": "tsx scripts/test-realtime.ts",
+    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router && npm run test:auth && npm run test:voice && npm run test:realtime"
   },
   "dependencies": {
     "clsx": "^2.1.1",
