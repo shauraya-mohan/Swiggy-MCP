@@ -146,6 +146,39 @@ group("1. reduceEvent — purity + lifecycle");
   assert(s === INITIAL_LIVE_STATE, "unknown event types return state untouched");
 }
 
+{
+  // Forward-compat safety net + alternate event names that flip aura → speaking
+  group("1b. aura sync — alternate speaking-indicator events");
+
+  // response.content_part.added (audio part) pre-emptively flips to speaking
+  let s = reduceEvent(INITIAL_LIVE_STATE, {
+    type: "response.content_part.added",
+    part: { type: "audio" },
+  });
+  assert(s.manifest.aura === "speaking", "content_part.added → speaking");
+
+  // response.output_audio.delta (raw audio bytes) → speaking
+  s = reduceEvent(INITIAL_LIVE_STATE, { type: "response.output_audio.delta", delta: "AAAA" });
+  assert(s.manifest.aura === "speaking", "output_audio.delta → speaking");
+
+  // Legacy beta name response.audio_transcript.delta still appends
+  s = reduceEvent(INITIAL_LIVE_STATE, {
+    type: "response.audio_transcript.delta",
+    delta: "Hello ",
+  });
+  assert(s.manifest.aura === "speaking", "legacy audio_transcript.delta → speaking");
+  assert(s.manifest.agentSays === "Hello ", "legacy audio_transcript.delta appends agentSays");
+
+  // Text modality variants
+  s = reduceEvent(INITIAL_LIVE_STATE, { type: "response.output_text.delta", delta: "Hi." });
+  assert(s.manifest.aura === "speaking", "output_text.delta → speaking");
+  assert(s.manifest.agentSays === "Hi.", "output_text.delta appends agentSays");
+
+  // Forward-compat: any future response.*.delta is treated as speaking
+  s = reduceEvent(INITIAL_LIVE_STATE, { type: "response.future_event.delta" });
+  assert(s.manifest.aura === "speaking", "unknown response.*.delta → speaking (forward-compat)");
+}
+
 // =========================================================================
 //  2. Tool-call accumulation + intent inference
 // =========================================================================

@@ -215,15 +215,18 @@ export function reduceEvent(
   state: LiveSessionState,
   event: RealtimeServerEvent,
 ): LiveSessionState {
-  switch (event.type) {
+  const type = event.type;
+
+  switch (type) {
     // ---------------- Session lifecycle ----------------
     case "session.created":
+    case "session.updated":
       return state;
 
-    // ---------------- User audio ----------------
+    // ---------------- User audio (server VAD only — manual mode skips these) ----------------
     case "input_audio_buffer.speech_started":
       return {
-        ...setAura(state, "listening"),
+        ...state,
         manifest: patchManifest(state.manifest, {
           aura: "listening",
           userSays: "",
@@ -256,13 +259,29 @@ export function reduceEvent(
       };
     }
 
-    // ---------------- Agent response ----------------
+    // ---------------- Agent response lifecycle ----------------
     case "response.created":
-      // Stay in thinking; will flip to speaking on first transcript delta.
+      // Composing — orbital particles state.
       return setAura(state, "thinking");
 
-    case "response.output_audio_transcript.delta": {
-      const e = event as OutputTranscriptDeltaEvent;
+    case "response.output_item.added":
+    case "response.content_part.added":
+      // Audio content part is about to stream — pre-emptively flip to
+      // speaking so the orb doesn't lag the audio output.
+      return setAura(state, "speaking");
+
+    case "response.output_audio.delta":
+      // Raw audio bytes are flowing (handled by WebRTC track). Belt-and-
+      // braces: ensure aura is speaking even if the transcript delta hasn't
+      // landed yet (some models emit audio chunks before the first
+      // transcript delta).
+      return setAura(state, "speaking");
+
+    case "response.output_audio_transcript.delta":
+    case "response.audio_transcript.delta":
+    case "response.output_text.delta":
+    case "response.text.delta": {
+      const e = event as { delta?: string };
       const prev = state.manifest.agentSays ?? "";
       const next = prev + (e.delta ?? "");
       return {
@@ -274,15 +293,24 @@ export function reduceEvent(
       };
     }
 
-    case "response.output_audio_transcript.done": {
-      const e = event as OutputTranscriptDoneEvent;
+    case "response.output_audio_transcript.done":
+    case "response.audio_transcript.done":
+    case "response.output_text.done":
+    case "response.text.done": {
+      const e = event as { transcript?: string; text?: string };
       return {
         ...state,
         manifest: patchManifest(state.manifest, {
-          agentSays: e.transcript ?? state.manifest.agentSays,
+          agentSays: e.transcript ?? e.text ?? state.manifest.agentSays,
         }),
       };
     }
+
+    case "response.output_audio.done":
+    case "response.content_part.done":
+    case "response.output_item.done":
+      // Intra-response milestones; aura stays speaking until response.done.
+      return state;
 
     // ---------------- Tool calls ----------------
     case "response.function_call_arguments.delta": {
@@ -305,7 +333,6 @@ export function reduceEvent(
     case "response.function_call_arguments.done": {
       const e = event as FunctionCallArgsDoneEvent;
       const inferred = intentFromToolName(e.name);
-      // Drop the pending entry — caller will execute the tool externally.
       const { [e.call_id]: _drop, ...rest } = state.pendingCalls;
       void _drop;
       return {
@@ -320,9 +347,11 @@ export function reduceEvent(
 
     // ---------------- Turn end ----------------
     case "response.done": {
-      // Don't clear transcripts — the UI fades them on next turn.
-      const nextAura: AuraState =
-        (event as ResponseDoneEvent).response?.status === "completed" ? "idle" : "idle";
+      const done = event as ResponseDoneEvent;
+      const status = done.response?.status;
+      // Keep agentSays visible — the UI fades it out when the next turn
+      // starts. Aura settles to idle.
+      const nextAura: AuraState = status === "completed" ? "idle" : "idle";
       return {
         ...state,
         manifest: patchManifest(state.manifest, { aura: nextAura }),
@@ -334,6 +363,13 @@ export function reduceEvent(
       return setAura(state, "idle");
 
     default:
+      // Forward-compatible safety net. ANY response.*.delta that we didn't
+      // explicitly enumerate (new event types in future API versions) still
+      // gets treated as "the agent is producing output" — so the orb won't
+      // freeze on thinking forever if OpenAI ships a new event shape.
+      if (typeof type === "string" && type.startsWith("response.") && type.endsWith(".delta")) {
+        return setAura(state, "speaking");
+      }
       return state;
   }
 }

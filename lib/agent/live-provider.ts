@@ -70,6 +70,13 @@ export function useLiveProvider(): LiveProviderState {
     // upstream, schema drift), don't take down the session — log it and keep
     // going. The Aura/transcript stay on whatever the last good state was.
     try {
+      // Lightweight trace — surfaces every event in the browser console so
+      // we can verify the wire-level flow when something looks off. Costs
+      // nothing in production builds (you can flip it off if it gets noisy).
+      if (typeof window !== "undefined") {
+        // eslint-disable-next-line no-console
+        console.debug("[realtime]", event.type);
+      }
       const next = reduceEvent(sessionStateRef.current, event);
       sessionStateRef.current = next;
       setManifest({ ...next.manifest });

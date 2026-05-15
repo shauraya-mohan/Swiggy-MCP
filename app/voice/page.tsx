@@ -111,18 +111,28 @@ export default function VoicePage() {
             inboundAnalyser={provider.inboundAnalyser ?? null}
             outboundAnalyser={provider.outboundAnalyser ?? null}
           />
-          {/* Transcript stays up through brief silences during a turn — the
-              old condition hid it on every speech_stopped event, which made
-              the bubble flicker in/out as deltas streamed in. Only the agent
-              actively speaking should hide the user's transcript. */}
+          {/* The two bubbles trade off in strict sequence:
+              - User talks (listening) → transcript fills
+              - User taps send (thinking) → transcript STAYS visible while
+                the model composes
+              - Agent starts speaking → transcript HIDES, caption fills
+              - Agent done (idle) → caption STAYS visible until the user
+                opens the next turn (startListening clears both)
+              The `!agentSays` guard on the transcript prevents the previous
+              user line from re-appearing after the agent finishes (when aura
+              flips back to idle). */}
           <TranscriptStream
             text={manifest.userSays}
-            active={!!manifest.userSays && effectiveAura !== "speaking"}
+            active={
+              !!manifest.userSays &&
+              !manifest.agentSays &&
+              (effectiveAura === "listening" || effectiveAura === "thinking")
+            }
             streaming={provider.mode === "live"}
           />
           <AgentCaption
             text={manifest.agentSays}
-            active={!!manifest.agentSays && effectiveAura === "speaking"}
+            active={!!manifest.agentSays && effectiveAura !== "listening"}
             streaming={provider.mode === "live"}
           />
         </div>
