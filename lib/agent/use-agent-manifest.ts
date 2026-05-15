@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AgentManifest,
   AgentManifestProvider,
@@ -14,14 +14,31 @@ import { useLiveProvider } from "@/lib/agent/live-provider";
  * useAgentManifest — unified hook the UI consumes regardless of mode.
  *
  * Internally it holds both demo and live providers and exposes whichever one
- * matches the current `mode`. The demo provider keeps ticking in the
- * background even when mode='live' (cheap; just a setTimeout per step), so
- * switching back is seamless.
+ * matches the current `mode`. Switching INTO live mode automatically opens
+ * the Realtime session (mic prompt → ephemeral mint → WebRTC); switching out
+ * tears it down so the mic LED actually turns off.
+ *
+ * The demo provider keeps ticking in the background even when mode='live'
+ * (cheap; just a setTimeout per step), so switching back is seamless.
  */
 export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManifestProvider {
   const [mode, setMode] = useState<ProviderMode>(initialMode);
   const demo = useDemoProvider();
   const live = useLiveProvider();
+  const lastModeRef = useRef<ProviderMode>(initialMode);
+
+  // Lazily open/close the live session in response to mode changes.
+  // Using a ref guard prevents double-start during React 19 StrictMode
+  // dev double-invocation of effects.
+  useEffect(() => {
+    if (mode === lastModeRef.current) return;
+    lastModeRef.current = mode;
+    if (mode === "live") {
+      void live.startSession();
+    } else {
+      void live.endSession();
+    }
+  }, [mode, live]);
 
   const manifest: AgentManifest = mode === "demo" ? demo.manifest : live.manifest;
 
@@ -35,7 +52,7 @@ export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManif
         demo.jumpToIntent(intent);
       }
     },
-    [mode, demo]
+    [mode, demo],
   );
 
   return {
@@ -49,5 +66,9 @@ export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManif
     endSession: live.endSession,
     mode,
     setMode,
+    inboundAnalyser: mode === "live" ? live.inboundAnalyser : null,
+    outboundAnalyser: mode === "live" ? live.outboundAnalyser : null,
+    liveError: mode === "live" ? live.liveError : null,
+    liveConnected: mode === "live" ? live.liveConnected : false,
   };
 }

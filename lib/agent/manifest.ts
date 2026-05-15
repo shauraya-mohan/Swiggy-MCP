@@ -104,6 +104,19 @@ export interface AgentManifestProvider {
   endSession: () => Promise<void>;
   mode: ProviderMode;
   setMode: (mode: ProviderMode) => void;
+  /**
+   * Live mode only — Web Audio analyser on the agent's audio output. When set,
+   * the Aura reads real frequency bins from this in `speaking`/`thinking` states
+   * instead of its Math.sin fallback. Null in demo mode or before the inbound
+   * track lands.
+   */
+  inboundAnalyser?: AnalyserNode | null;
+  /** Live mode only — Web Audio analyser on the user's microphone input. */
+  outboundAnalyser?: AnalyserNode | null;
+  /** Live mode only — last transport / session error, surfaced for UI. */
+  liveError?: string | null;
+  /** Live mode only — true while the WebRTC connection is up. */
+  liveConnected?: boolean;
 }
 
 export const IDLE_MANIFEST: AgentManifest = {
