@@ -179,6 +179,56 @@ export function intentFromToolName(toolName: string | undefined | null): IntentM
   return null;
 }
 
+/**
+ * intentFromUserText — best-effort keyword sniff over the user's final
+ * transcribed utterance. Used to flip the bottom intent pill the *moment*
+ * the user states their plan, instead of waiting 1–2s for the model to
+ * fire its first tool call.
+ *
+ * Deliberately narrow & voice-tested: only matches words the user actually
+ * says out loud at the intent gateway. The model's own tool calls (via
+ * intentFromToolName) override this if they disagree.
+ *
+ * Returns null when the utterance is ambiguous or unrelated — the existing
+ * intent stays put.
+ */
+export function intentFromUserText(text: string | undefined | null): IntentMode | null {
+  if (!text || typeof text !== "string") return null;
+  const t = text.toLowerCase();
+
+  // "Going out / heading out / eat out" → dine. Checked first because
+  // "out" qualifies the verb and disambiguates from "ordering out".
+  if (
+    /\b(dine|dining|eat\s*out|go(ing)?\s*out|head(ing)?\s*out|book\s*a\s*table|reservation|restaurant\s*tonight)\b/.test(
+      t,
+    )
+  ) {
+    return "dine";
+  }
+
+  // "Cooking / making / cook at home / home-cooked" → cook
+  if (
+    /\b(cook|cooking|cooked|make\s*dinner|making\s*dinner|home[-\s]?cook(ed|ing)?|kitchen\s*tonight|at\s*home\s*tonight)\b/.test(
+      t,
+    )
+  ) {
+    return "cook";
+  }
+
+  // "Order / delivery / get something delivered" → order. Last because
+  // "order" is overloaded ("first order of business" etc.); the more
+  // specific cook/dine matches above win when they apply.
+  if (
+    /\b(order(\s*in)?|ordering(\s*in)?|delivery|delivered|get\s*(some\s*)?food|takeaway|take\s*out)\b/.test(
+      t,
+    )
+  ) {
+    return "order";
+  }
+
+  return null;
+}
+
 function patchManifest(
   base: AgentManifest,
   patch: Partial<AgentManifest>,
@@ -251,10 +301,20 @@ export function reduceEvent(
 
     case "conversation.item.input_audio_transcription.completed": {
       const e = event as InputTranscriptionCompletedEvent;
+      const finalText = e.transcript ?? state.manifest.userSays ?? "";
+      // Eager intent inference from the user's own words so the bottom pill
+      // flips the moment they finish their sentence — without waiting for
+      // the first tool call (which lags 1–2s behind in a multi-step flow).
+      // Keyword-matching is intentionally narrow + voice-friendly; the
+      // model's tool choice still has the final say and will override on
+      // any subsequent function_call_arguments event.
+      const spokenIntent = intentFromUserText(finalText);
       return {
         ...state,
+        intent: spokenIntent ?? state.intent,
         manifest: patchManifest(state.manifest, {
-          userSays: e.transcript ?? state.manifest.userSays,
+          userSays: finalText,
+          intent: spokenIntent ?? state.manifest.intent,
         }),
       };
     }
@@ -348,10 +408,15 @@ export function reduceEvent(
     // ---------------- Turn end ----------------
     case "response.done": {
       const done = event as ResponseDoneEvent;
-      const status = done.response?.status;
-      // Keep agentSays visible — the UI fades it out when the next turn
-      // starts. Aura settles to idle.
-      const nextAura: AuraState = status === "completed" ? "idle" : "idle";
+      // If the response contains function_call items, the bridge is about
+      // to POST the results and fire response.create — staying in "thinking"
+      // keeps the orb rock-steady through multi-step tool chains
+      // (e.g. get_addresses → search_products → update_cart → update_cart…).
+      // Only when the response has *no* tool calls do we settle to idle,
+      // i.e. the model has actually finished its turn.
+      const output = done.response?.output ?? [];
+      const hasToolCall = output.some((it) => it.type === "function_call");
+      const nextAura: AuraState = hasToolCall ? "thinking" : "idle";
       return {
         ...state,
         manifest: patchManifest(state.manifest, { aura: nextAura }),

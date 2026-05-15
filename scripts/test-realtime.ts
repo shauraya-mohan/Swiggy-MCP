@@ -22,6 +22,7 @@ import {
   reduceEvent,
   extractFunctionCalls,
   intentFromToolName,
+  intentFromUserText,
   INITIAL_LIVE_STATE,
   type LiveSessionState,
   type ResponseDoneEvent,
@@ -248,6 +249,92 @@ assert(intentFromToolName("im__search_products") === "cook", "im__ → cook");
 assert(intentFromToolName("dineout__book_table") === "dine", "dineout__ → dine");
 assert(intentFromToolName("garbage__noop") === null, "unknown prefix → null");
 assert(intentFromToolName("food") === null, "missing tool name → null");
+
+group("3b. intentFromUserText — eager intent from the user's words");
+
+assert(
+  intentFromUserText("we are cooking at home tonight") === "cook",
+  "‘cooking at home tonight’ → cook",
+);
+assert(intentFromUserText("let's cook dinner") === "cook", "‘cook dinner’ → cook");
+assert(intentFromUserText("home cooked tonight") === "cook", "‘home cooked’ → cook");
+assert(intentFromUserText("order biryani") === "order", "‘order biryani’ → order");
+assert(intentFromUserText("get food delivered") === "order", "‘delivery’ → order");
+assert(intentFromUserText("just order in") === "order", "‘order in’ → order");
+assert(intentFromUserText("let's go out tonight") === "dine", "‘going out’ → dine");
+assert(intentFromUserText("book a table for two") === "dine", "‘book a table’ → dine");
+assert(intentFromUserText("eat out") === "dine", "‘eat out’ → dine");
+assert(intentFromUserText("what's the weather") === null, "unrelated → null");
+assert(intentFromUserText(undefined) === null, "undefined → null");
+assert(intentFromUserText("") === null, "empty → null");
+assert(
+  intentFromUserText("we want to eat out, not cooking tonight") === "dine",
+  "dine wins when both keywords present (more specific match)",
+);
+
+// And the reducer wires it through input_audio_transcription.completed
+{
+  let s = INITIAL_LIVE_STATE;
+  s = reduceEvent(s, { type: "input_audio_buffer.speech_started" });
+  s = reduceEvent(s, {
+    type: "conversation.item.input_audio_transcription.completed",
+    transcript: "we are cooking at home tonight",
+  });
+  assert(s.manifest.intent === "cook", "transcription.completed → intent flips eagerly");
+  assert(s.manifest.userSays === "we are cooking at home tonight", "final transcript locked in");
+}
+
+// And response.done with function_call output keeps aura at thinking (no
+// flicker between multi-step tool chains)
+group("3c. response.done aura — multi-tool chain stays steady");
+{
+  let s = INITIAL_LIVE_STATE;
+  s = reduceEvent(s, { type: "response.created", response: { id: "r_chain" } });
+  s = reduceEvent(s, {
+    type: "response.function_call_arguments.done",
+    call_id: "c_1",
+    name: "im__search_products",
+    arguments: "{}",
+  });
+  // response.done arrives with a function_call still in the output. Bridge
+  // is about to POST + response.create — aura must NOT settle to idle.
+  s = reduceEvent(s, {
+    type: "response.done",
+    response: {
+      id: "r_chain",
+      status: "completed",
+      output: [
+        {
+          type: "function_call",
+          name: "im__search_products",
+          call_id: "c_1",
+          arguments: "{}",
+        },
+      ],
+    },
+  });
+  assert(
+    s.manifest.aura === "thinking",
+    "response.done with function_call output → aura stays thinking",
+  );
+}
+
+{
+  let s = INITIAL_LIVE_STATE;
+  s = reduceEvent(s, { type: "response.created", response: { id: "r_done" } });
+  s = reduceEvent(s, { type: "response.output_audio_transcript.delta", delta: "Done." });
+  s = reduceEvent(s, {
+    type: "response.done",
+    response: {
+      id: "r_done",
+      status: "completed",
+      output: [
+        { type: "message", role: "assistant", content: [{ type: "audio", transcript: "Done." }] },
+      ],
+    },
+  });
+  assert(s.manifest.aura === "idle", "response.done w/o function_call → aura settles idle");
+}
 
 // =========================================================================
 //  4. extractFunctionCalls
