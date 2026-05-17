@@ -46,8 +46,20 @@ export default function VoicePage() {
   // Resolve effective intent + aura state honouring tweaks overrides.
   const effectiveIntent: IntentMode =
     tweaks.intent !== "auto" ? tweaks.intent : provider.manifest.intent;
+  // effectiveAura = "what the orb + button should reflect right now"
+  // Resolution order, highest priority first:
+  //   1. Tweaks panel manual override (debug only)
+  //   2. Real audio is currently audible → speaking (overrides server
+  //      state so the button stays on "Interrupt" until the user actually
+  //      stops hearing the agent — fixes the "response.done flips the
+  //      button to Tap-to-Talk while audio is still playing" race).
+  //   3. Whatever the event reducer says.
   const effectiveAura =
-    tweaks.auraState !== "auto" ? tweaks.auraState : provider.manifest.aura;
+    tweaks.auraState !== "auto"
+      ? tweaks.auraState
+      : provider.agentAudible
+        ? "speaking"
+        : provider.manifest.aura;
 
   const manifest = provider.manifest;
   const cards = (manifest.cards ?? []).slice(0, MAX_CARDS);

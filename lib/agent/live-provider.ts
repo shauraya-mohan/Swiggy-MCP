@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { AgentManifest } from "@/lib/agent/manifest";
 import { IDLE_MANIFEST } from "@/lib/agent/manifest";
 import {
@@ -49,6 +49,14 @@ export interface LiveProviderState {
   liveError: string | null;
   liveConnected: boolean;
   isListening: boolean;
+  /**
+   * True while real audio energy is being heard from OpenAI's inbound track.
+   * Latches false only after ~500 ms of silence so brief pauses inside a
+   * sentence don't flip the orb / button to "idle" prematurely. Sourced from
+   * the inbound AnalyserNode, gated off when playback is muted by an
+   * interrupt — guaranteed to mirror what the user actually hears.
+   */
+  agentAudible: boolean;
 }
 
 export function useLiveProvider(): LiveProviderState {
@@ -58,6 +66,8 @@ export function useLiveProvider(): LiveProviderState {
   const [inboundAnalyser, setInboundAnalyser] = useState<AnalyserNode | null>(null);
   const [outboundAnalyser, setOutboundAnalyser] = useState<AnalyserNode | null>(null);
   const [isListening, setIsListening] = useState(false);
+  const [agentAudible, setAgentAudible] = useState(false);
+  const agentAudibleRef = useRef(false);
 
   // Mutable session refs — kept out of React state to avoid stale closures
   // during the event loop. We never re-create the session on re-render.
@@ -71,6 +81,67 @@ export function useLiveProvider(): LiveProviderState {
   // the aura flickers back to speaking — visibly contradicting the user's
   // interrupt. cancellingRef gates the reducer until the next user turn.
   const cancellingRef = useRef<boolean>(false);
+
+  // Per-frame poll of the inbound audio analyser to derive `agentAudible`.
+  // This is THE source of truth for "the user is currently hearing the
+  // agent" — server events arrive ~200–500ms before the local audio buffer
+  // finishes playing, so binding the orb / button to server state alone
+  // makes them flip to "idle" while audio is still streaming. Hysteresis
+  // (3 frames above, 30 frames below — ~50ms attack, ~500ms release)
+  // prevents flicker on natural mid-sentence pauses.
+  useEffect(() => {
+    if (!inboundAnalyser) {
+      if (agentAudibleRef.current) {
+        agentAudibleRef.current = false;
+        setAgentAudible(false);
+      }
+      return;
+    }
+    const buf = new Uint8Array(inboundAnalyser.frequencyBinCount);
+    const AUDIBLE_THRESHOLD = 8; // mean byte over the FFT bins (0..255)
+    const ATTACK_FRAMES = 3;
+    const RELEASE_FRAMES = 30;
+    let aboveFrames = 0;
+    let belowFrames = 0;
+    let raf = 0;
+
+    const tick = () => {
+      // If a cancel is in flight the audio element is muted — the user
+      // hears nothing regardless of what the analyser sees on the
+      // upstream WebRTC track. Force not-audible.
+      if (cancellingRef.current) {
+        if (agentAudibleRef.current) {
+          agentAudibleRef.current = false;
+          setAgentAudible(false);
+        }
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+      inboundAnalyser.getByteFrequencyData(buf);
+      let total = 0;
+      for (let i = 0; i < buf.length; i++) total += buf[i];
+      const avg = total / buf.length;
+
+      if (avg > AUDIBLE_THRESHOLD) {
+        aboveFrames++;
+        belowFrames = 0;
+        if (!agentAudibleRef.current && aboveFrames > ATTACK_FRAMES) {
+          agentAudibleRef.current = true;
+          setAgentAudible(true);
+        }
+      } else {
+        belowFrames++;
+        aboveFrames = 0;
+        if (agentAudibleRef.current && belowFrames > RELEASE_FRAMES) {
+          agentAudibleRef.current = false;
+          setAgentAudible(false);
+        }
+      }
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [inboundAnalyser]);
 
   const applyEvent = useCallback((event: RealtimeServerEvent) => {
     // Reducer is meant to be pure; if it ever throws (malformed event from
@@ -218,11 +289,13 @@ export function useLiveProvider(): LiveProviderState {
     }
     sessionStateRef.current = INITIAL_LIVE_STATE;
     cancellingRef.current = false;
+    agentAudibleRef.current = false;
     setManifest(IDLE_MANIFEST);
     setInboundAnalyser(null);
     setOutboundAnalyser(null);
     setLiveConnected(false);
     setIsListening(false);
+    setAgentAudible(false);
   }, []);
 
   // ---- Push-to-talk turn control ----
@@ -276,6 +349,10 @@ export function useLiveProvider(): LiveProviderState {
     cancellingRef.current = true;
     handle.setPlaybackMuted(true);
     handle.send({ type: "response.cancel" });
+    // Hard-clear audible too — don't wait one frame for the analyser
+    // poll to notice cancellingRef. The button needs to flip instantly.
+    agentAudibleRef.current = false;
+    setAgentAudible(false);
     // Drop the caption immediately too — visual ack of the interrupt.
     patchManifest({ aura: "idle", agentSays: undefined });
   }, [patchManifest]);
@@ -292,5 +369,6 @@ export function useLiveProvider(): LiveProviderState {
     liveError,
     liveConnected,
     isListening,
+    agentAudible,
   };
 }

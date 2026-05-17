@@ -125,6 +125,15 @@ export interface AgentManifestProvider {
   stopListening?: () => void;
   /** Live mode only — cancel an in-progress agent response. */
   interruptResponse?: () => void;
+  /**
+   * Live mode only — true while the inbound audio analyser sees real
+   * energy from the agent's voice. Use this (not aura alone) to gate
+   * "is the agent currently audible right now?" UI affordances like
+   * the Interrupt button. Lags the audio by ≤ 50 ms on the rising edge
+   * and ~500 ms on the falling edge (hysteresis prevents flicker on
+   * mid-sentence pauses).
+   */
+  agentAudible?: boolean;
 }
 
 export const IDLE_MANIFEST: AgentManifest = {

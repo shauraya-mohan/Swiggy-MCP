@@ -81,6 +81,12 @@ export function Aura({
     // Reusable byte buffer for AnalyserNode.getByteFrequencyData. Sized to
     // freqBins.length (which matches the analyser's fftSize/2 = 32).
     const analyserBuf = new Uint8Array(freqBins.length);
+    // Smoothly interpolated 0..1 "amount of thinking visual" — keeps the
+    // hue shift, halo lightness, and orbital particles from snapping
+    // on/off when the aura state crosses the thinking boundary. Lerps
+    // at ~0.08/frame → 60–80 ms to converge, fast enough to feel
+    // responsive, slow enough to read as a transition.
+    let thinkingAmt = 0;
 
     const tick = (t: number) => {
       const elapsed = (t - start) / 1000;
@@ -88,6 +94,8 @@ export function Aura({
       const s = stateRef.current.state;
       const intentNow = stateRef.current.intent;
       const palette = INTENT_PALETTE[intentNow] ?? INTENT_PALETTE.cook;
+      const targetThinking = s === "thinking" ? 1 : 0;
+      thinkingAmt += (targetThinking - thinkingAmt) * 0.08;
 
       // Prefer real audio analyser data when the corresponding state is
       // active and the analyser is wired up (live mode). Otherwise fall back
@@ -151,7 +159,8 @@ export function Aura({
         cy,
         haloR
       );
-      const hueShift = s === "thinking" ? 20 : 0;
+      // Hue eases between speaking-orange (0) and thinking-yellow (+20).
+      const hueShift = 20 * thinkingAmt;
       halo.addColorStop(
         0,
         `hsla(${palette.h + hueShift}, 95%, 60%, ${
@@ -184,7 +193,7 @@ export function Aura({
         const dx = Math.cos(phase * 1.3) * baseRadius * 0.18 * band;
         const dy = Math.sin(phase * 0.9) * baseRadius * 0.18 * band;
 
-        const lightness = 50 + i * 4 + (s === "thinking" ? 5 : 0);
+        const lightness = 50 + i * 4 + 5 * thinkingAmt;
         const alpha = (0.18 - i * 0.022) * (1 + avgFreq * 0.5);
 
         const grad = ctx.createRadialGradient(cx + dx, cy + dy, 0, cx + dx, cy + dy, r);
@@ -242,8 +251,11 @@ export function Aura({
       ctx.fill();
       ctx.restore();
 
-      // Thinking orbital particles
-      if (s === "thinking") {
+      // Thinking orbital particles — alpha fades with thinkingAmt so they
+      // dissolve in/out instead of popping. Skip drawing entirely below
+      // a small epsilon (purely a perf nudge; saves ~5 fill ops/frame
+      // when the orb is comfortably in speaking/idle).
+      if (thinkingAmt > 0.02) {
         for (let i = 0; i < 5; i++) {
           const angle = elapsed * 1.4 + (i * Math.PI * 2) / 5;
           const orbitR = baseRadius * 1.25 + Math.sin(elapsed * 2 + i) * 8;
@@ -252,8 +264,8 @@ export function Aura({
           const pSize = 2 + Math.sin(elapsed * 3 + i) * 1;
           ctx.beginPath();
           ctx.arc(px, py, pSize, 0, Math.PI * 2);
-          ctx.fillStyle = `hsla(${palette.h + 10}, 100%, 80%, 0.85)`;
-          ctx.shadowBlur = 12;
+          ctx.fillStyle = `hsla(${palette.h + 10}, 100%, 80%, ${0.85 * thinkingAmt})`;
+          ctx.shadowBlur = 12 * thinkingAmt;
           ctx.shadowColor = palette.accent;
           ctx.fill();
           ctx.shadowBlur = 0;

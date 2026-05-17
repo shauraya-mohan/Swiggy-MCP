@@ -74,5 +74,6 @@ export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManif
     startListening: live.startListening,
     stopListening: live.stopListening,
     interruptResponse: live.interruptResponse,
+    agentAudible: mode === "live" ? live.agentAudible : false,
   };
 }
