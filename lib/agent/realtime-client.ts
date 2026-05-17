@@ -52,6 +52,13 @@ export interface SessionHandle {
   setMicEnabled: (on: boolean) => void;
   /** Current mic enable state (mirrors the track flag). */
   isMicEnabled: () => boolean;
+  /**
+   * Mute / unmute the inbound audio element. Used by `interruptResponse()`
+   * to cut the agent's voice the *instant* the user taps Interrupt — even
+   * before OpenAI's `response.cancel` round-trip completes and the audio
+   * track stops emitting. Re-enabled on the next user turn.
+   */
+  setPlaybackMuted: (muted: boolean) => void;
 }
 
 export async function openRealtimeSession(opts: OpenSessionOptions): Promise<SessionHandle> {
@@ -206,6 +213,27 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     return tracks.length > 0 && tracks.every((t) => t.enabled);
   };
 
+  const setPlaybackMuted = (muted: boolean) => {
+    // .muted is the immediate kill-switch: silences the audio element
+    // without tearing down the WebRTC track. Pairing it with .pause() drops
+    // anything the browser had buffered locally, so when we re-enable on
+    // the next turn we don't hear a "tail" of the previous response.
+    audioEl.muted = muted;
+    if (muted) {
+      try {
+        audioEl.pause();
+      } catch {
+        // ignore
+      }
+    } else {
+      // Resume playback for the next response. play() returns a Promise
+      // that may reject if autoplay policy intervenes — we swallow it
+      // because the user gesture that started the session already
+      // unlocked autoplay for this document.
+      audioEl.play().catch(() => {});
+    }
+  };
+
   const close = async () => {
     try {
       dc.close();
@@ -236,5 +264,5 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     inboundAnalyser = null;
   };
 
-  return { send, close, setMicEnabled, isMicEnabled };
+  return { send, close, setMicEnabled, isMicEnabled, setPlaybackMuted };
 }

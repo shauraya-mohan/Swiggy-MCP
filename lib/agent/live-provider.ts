@@ -64,6 +64,13 @@ export function useLiveProvider(): LiveProviderState {
   const sessionRef = useRef<SessionHandle | null>(null);
   const sessionStateRef = useRef<LiveSessionState>(INITIAL_LIVE_STATE);
   const startingRef = useRef<boolean>(false);
+  // After the user taps Interrupt we send `response.cancel` but tail-end
+  // events for that response (deltas already on the wire, the final
+  // response.done with status=cancelled) keep arriving for ~200–500 ms.
+  // If we let them flow through the reducer the caption keeps growing and
+  // the aura flickers back to speaking — visibly contradicting the user's
+  // interrupt. cancellingRef gates the reducer until the next user turn.
+  const cancellingRef = useRef<boolean>(false);
 
   const applyEvent = useCallback((event: RealtimeServerEvent) => {
     // Reducer is meant to be pure; if it ever throws (malformed event from
@@ -76,6 +83,22 @@ export function useLiveProvider(): LiveProviderState {
       if (typeof window !== "undefined") {
         // eslint-disable-next-line no-console
         console.debug("[realtime]", event.type);
+      }
+      // Drop tail-end events from a cancelled response. Errors and session
+      // lifecycle events still go through; only response.* state churn is
+      // suppressed.
+      if (cancellingRef.current && typeof event.type === "string" && event.type.startsWith("response.")) {
+        if (typeof window !== "undefined") {
+          console.debug("[realtime] (cancelled — dropped)", event.type);
+        }
+        // A response.done with status=cancelled is the OpenAI ack that the
+        // cancellation took effect. Once we've seen it, we can stop
+        // suppressing — but we still don't *apply* it (no state change).
+        const done = event as { type: string; response?: { status?: string } };
+        if (event.type === "response.done" && done.response?.status === "cancelled") {
+          cancellingRef.current = false;
+        }
+        return;
       }
       const next = reduceEvent(sessionStateRef.current, event);
       sessionStateRef.current = next;
@@ -194,6 +217,7 @@ export function useLiveProvider(): LiveProviderState {
       await handle.close();
     }
     sessionStateRef.current = INITIAL_LIVE_STATE;
+    cancellingRef.current = false;
     setManifest(IDLE_MANIFEST);
     setInboundAnalyser(null);
     setOutboundAnalyser(null);
@@ -220,6 +244,11 @@ export function useLiveProvider(): LiveProviderState {
   const startListening = useCallback(() => {
     const handle = sessionRef.current;
     if (!handle) return;
+    // Starting a new turn clears any lingering cancellation state so the
+    // next response.* events flow normally — and re-enables playback in
+    // case the previous turn was interrupted (which muted the <audio>).
+    cancellingRef.current = false;
+    handle.setPlaybackMuted(false);
     handle.setMicEnabled(true);
     handle.send({ type: "input_audio_buffer.clear" });
     // Reset transcripts for the new utterance so the bubble starts empty.
@@ -240,8 +269,15 @@ export function useLiveProvider(): LiveProviderState {
   const interruptResponse = useCallback(() => {
     const handle = sessionRef.current;
     if (!handle) return;
+    // Mute the audio element FIRST so the user hears silence immediately —
+    // before the network round-trip for response.cancel. The cancellation
+    // flag prevents any in-flight transcript deltas from re-inflating the
+    // caption while we wait for the official cancelled-response.done.
+    cancellingRef.current = true;
+    handle.setPlaybackMuted(true);
     handle.send({ type: "response.cancel" });
-    patchManifest({ aura: "idle" });
+    // Drop the caption immediately too — visual ack of the interrupt.
+    patchManifest({ aura: "idle", agentSays: undefined });
   }, [patchManifest]);
 
   return {
