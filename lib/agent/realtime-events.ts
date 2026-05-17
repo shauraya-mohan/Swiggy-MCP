@@ -321,7 +321,17 @@ export function reduceEvent(
 
     // ---------------- Agent response lifecycle ----------------
     case "response.created":
-      // Composing — orbital particles state.
+      // A fresh response is starting. If we were already speaking (a
+      // previous sub-response in a multi-step tool chain just finished),
+      // don't claw the orb back through "thinking" — that's the visible
+      // flicker between Instamart cart-add steps. Only flip to thinking
+      // from terminal states (idle / listening / success).
+      if (
+        state.manifest.aura === "speaking" ||
+        state.manifest.aura === "thinking"
+      ) {
+        return state;
+      }
       return setAura(state, "thinking");
 
     case "response.output_item.added":
@@ -408,18 +418,24 @@ export function reduceEvent(
     // ---------------- Turn end ----------------
     case "response.done": {
       const done = event as ResponseDoneEvent;
-      // If the response contains function_call items, the bridge is about
-      // to POST the results and fire response.create — staying in "thinking"
-      // keeps the orb rock-steady through multi-step tool chains
-      // (e.g. get_addresses → search_products → update_cart → update_cart…).
-      // Only when the response has *no* tool calls do we settle to idle,
-      // i.e. the model has actually finished its turn.
+      // Two cases:
+      //  (a) Response has function_call items → bridge is about to POST
+      //      results + fire another response.create. We're mid-chain;
+      //      KEEP the current aura state (whatever audio events left
+      //      it at) so the orb doesn't blink to a different visual
+      //      treatment between sub-responses. The freq bins will decay
+      //      naturally during the silent gap because the audio
+      //      analyser reports zero energy.
+      //  (b) Response has only message content (or empty output) →
+      //      this is the true end of the turn. Settle to idle.
       const output = done.response?.output ?? [];
       const hasToolCall = output.some((it) => it.type === "function_call");
-      const nextAura: AuraState = hasToolCall ? "thinking" : "idle";
+      if (hasToolCall) {
+        return state;
+      }
       return {
         ...state,
-        manifest: patchManifest(state.manifest, { aura: nextAura }),
+        manifest: patchManifest(state.manifest, { aura: "idle" }),
       };
     }
 

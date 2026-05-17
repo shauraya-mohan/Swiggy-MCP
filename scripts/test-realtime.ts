@@ -319,6 +319,86 @@ group("3c. response.done aura — multi-tool chain stays steady");
   );
 }
 
+group("3d. multi-step Instamart chain — no speaking↔thinking flicker");
+{
+  // Simulates a real cart-add chain: agent narrates ("adding chicken"),
+  // calls update_cart, model fires response.done with function_call,
+  // bridge sends response.create, agent narrates next item, etc.
+  // The orb must STAY at speaking across the whole chain (no flicker to
+  // thinking between sub-responses) and only settle on the final
+  // response.done that has no function_call output.
+  let s = INITIAL_LIVE_STATE;
+
+  // Turn opens with user finishing — aura → thinking.
+  s = reduceEvent(s, { type: "input_audio_buffer.speech_stopped" });
+  assert(s.manifest.aura === "thinking", "stopListening → thinking");
+
+  // ── Sub-response 1: narration + tool call ──
+  s = reduceEvent(s, { type: "response.created", response: { id: "r1" } });
+  assert(s.manifest.aura === "thinking", "r1.created keeps thinking (terminal → thinking)");
+  s = reduceEvent(s, { type: "response.content_part.added", part: { type: "audio" } });
+  assert(s.manifest.aura === "speaking", "first audio part → speaking");
+  s = reduceEvent(s, { type: "response.output_audio_transcript.delta", delta: "Adding chicken" });
+  s = reduceEvent(s, {
+    type: "response.function_call_arguments.done",
+    call_id: "c1",
+    name: "im__update_cart",
+    arguments: "{}",
+  });
+  s = reduceEvent(s, {
+    type: "response.done",
+    response: {
+      id: "r1",
+      status: "completed",
+      output: [{ type: "function_call", name: "im__update_cart", call_id: "c1", arguments: "{}" }],
+    },
+  });
+  assert(
+    s.manifest.aura === "speaking",
+    "r1.done (with function_call) does NOT claw back to thinking",
+  );
+
+  // ── Sub-response 2: another narration + tool call ──
+  s = reduceEvent(s, { type: "response.created", response: { id: "r2" } });
+  assert(
+    s.manifest.aura === "speaking",
+    "r2.created does NOT interrupt speaking — no flicker between cart steps",
+  );
+  s = reduceEvent(s, { type: "response.content_part.added", part: { type: "audio" } });
+  assert(s.manifest.aura === "speaking", "still speaking through r2");
+  s = reduceEvent(s, { type: "response.output_audio_transcript.delta", delta: ", butter" });
+  s = reduceEvent(s, {
+    type: "response.done",
+    response: {
+      id: "r2",
+      status: "completed",
+      output: [{ type: "function_call", name: "im__update_cart", call_id: "c2", arguments: "{}" }],
+    },
+  });
+  assert(s.manifest.aura === "speaking", "r2.done with function_call keeps speaking");
+
+  // ── Sub-response 3: final summary, NO tool calls ──
+  s = reduceEvent(s, { type: "response.created", response: { id: "r3" } });
+  assert(s.manifest.aura === "speaking", "r3.created keeps speaking");
+  s = reduceEvent(s, { type: "response.content_part.added", part: { type: "audio" } });
+  s = reduceEvent(s, { type: "response.output_audio_transcript.delta", delta: " — total ₹535." });
+  s = reduceEvent(s, {
+    type: "response.done",
+    response: {
+      id: "r3",
+      status: "completed",
+      output: [
+        { type: "message", role: "assistant", content: [{ type: "audio", transcript: "..." }] },
+      ],
+    },
+  });
+  assert(s.manifest.aura === "idle", "final response.done (no tool calls) → idle");
+  assert(
+    s.manifest.agentSays === "Adding chicken, butter — total ₹535.",
+    "transcript deltas concatenated across the entire chain",
+  );
+}
+
 {
   let s = INITIAL_LIVE_STATE;
   s = reduceEvent(s, { type: "response.created", response: { id: "r_done" } });
