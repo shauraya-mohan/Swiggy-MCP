@@ -134,9 +134,12 @@ export function VoiceButton(props: VoiceButtonProps) {
         fontSize: 11,
         letterSpacing: "0.18em",
         textTransform: "uppercase",
-        cursor: view.busy ? "progress" : "pointer",
+        // `cursor: progress` triggers the macOS rainbow spinner on hover —
+        // visually noisy and conflates "agent is thinking" with "your OS is
+        // hung". `default` is the polite "non-clickable" cursor.
+        cursor: view.busy ? "default" : "pointer",
         transition:
-          "background 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease",
+          "background 0.18s ease, color 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease",
         boxShadow: palette.glow,
         minWidth: 168,
         justifyContent: "center",

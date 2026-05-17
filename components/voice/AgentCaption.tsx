@@ -20,8 +20,11 @@ import { useEffect, useRef } from "react";
  */
 
 const MAX_LINE_HEIGHT_PX = 21; // 14px * 1.5 line-height
-const VISIBLE_LINES = 4;
-const MAX_CAPTION_HEIGHT = MAX_LINE_HEIGHT_PX * VISIBLE_LINES; // ≈ 84px
+// 3 visible lines instead of 4 — keeps a comfortable air-gap between the
+// last caption line and the VoiceButton below. Anything longer rolls up
+// behind the top fade-out gradient.
+const VISIBLE_LINES = 3;
+const MAX_CAPTION_HEIGHT = MAX_LINE_HEIGHT_PX * VISIBLE_LINES; // ≈ 63px
 
 export function AgentCaption({
   text,
