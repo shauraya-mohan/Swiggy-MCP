@@ -152,7 +152,6 @@ export function useLiveProvider(): LiveProviderState {
       // we can verify the wire-level flow when something looks off. Costs
       // nothing in production builds (you can flip it off if it gets noisy).
       if (typeof window !== "undefined") {
-        // eslint-disable-next-line no-console
         console.debug("[realtime]", event.type);
       }
       // Drop tail-end events from a cancelled response. Errors and session

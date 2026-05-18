@@ -47,7 +47,7 @@ function findMenuItem(restaurantId: string, itemId: string): MenuItem | null {
 
 // --- 1. get_addresses -----------------------------------------------------
 
-export interface GetAddressesArgs {}
+export type GetAddressesArgs = Record<string, never>;
 
 export async function get_addresses(_args: GetAddressesArgs = {}) {
   await jitterDelay();

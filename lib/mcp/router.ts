@@ -16,7 +16,7 @@ import { callMockTool } from "../mock";
 import type { SwiggyResponse } from "../mock/types";
 import { err } from "../mock/helpers";
 import { callRealTool } from "./client";
-import { findTool, type ToolDef, type ToolServer } from "./manifest";
+import { findTool, TOOLS, type ToolDef, type ToolServer } from "./manifest";
 
 export type Mode = "mock" | "real";
 
@@ -119,9 +119,6 @@ export function toolsForOpenAI(): Array<{
   description: string;
   parameters: ToolDef["parameters"];
 }> {
-  // Lazy import to keep this side of the file free of manifest re-exports
-  // when consumers only need callTool().
-  const { TOOLS } = require("./manifest") as { TOOLS: ToolDef[] };
   return TOOLS.map((t) => ({
     type: "function" as const,
     name: `${t.server}__${t.name}`, // dots/colons are disallowed in OpenAI tool names

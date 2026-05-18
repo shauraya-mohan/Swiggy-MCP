@@ -31,17 +31,22 @@ export function TranscriptStream({
 
   // Demo mode: tokenize and animate. Live mode skips this entirely — we
   // render `text` directly because OpenAI's streaming IS the animation.
+  // The bail-out branches deliberately don't call setShown — the array
+  // isn't rendered in those branches, so leaving it stale is harmless
+  // (and avoids the cascading-render warning from React 19).
   useEffect(() => {
-    if (streaming) {
-      setShown([]);
-      return;
-    }
-    if (!active || !text) {
-      setShown([]);
-      return;
-    }
+    if (streaming) return;
+    if (!active || !text) return;
     const words = text.split(" ");
     let i = 0;
+    // Reset the rendered word list at the start of every new demo step so
+    // the animation restarts from word 0. The lint rule flags this as a
+    // cascading render risk, but it's deliberate: this effect's only
+    // re-trigger is a prop change (text/active/streaming), and the reset
+    // sets shown to a value that's equivalent to the next-tick state, so
+    // no infinite loop is possible.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setShown([]);
     const interval = setInterval(() => {
       i++;
       setShown(words.slice(0, i));
