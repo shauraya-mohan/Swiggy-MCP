@@ -54,14 +54,90 @@ export interface SessionConfigOptions {
   turnDetection?: TurnDetection;
 }
 
-let cachedPrompt: string | null = null;
+// Cache the on-disk markdown — it doesn't change at runtime in prod,
+// and `next dev` restarts the process on edits. The TIME-CONTEXT block
+// appended below is recomputed on every call so the agent always sees
+// the current date (otherwise a server that's been up for a day would
+// tell the model it's still yesterday).
+let cachedBasePrompt: string | null = null;
 
-/** Load the system prompt from disk once per process. */
-export function loadSystemPrompt(): string {
-  if (cachedPrompt) return cachedPrompt;
+function loadBasePrompt(): string {
+  if (cachedBasePrompt) return cachedBasePrompt;
   const p = path.join(process.cwd(), "agent", "prompts", "system.md");
-  cachedPrompt = fs.readFileSync(p, "utf-8");
-  return cachedPrompt;
+  cachedBasePrompt = fs.readFileSync(p, "utf-8");
+  return cachedBasePrompt;
+}
+
+/**
+ * Render the `## Current time context` block that gets appended to the
+ * system prompt at session-mint time. Without this the model has no
+ * idea what "today" / "tonight" / "tomorrow" mean — it falls back to
+ * its training cutoff, which is months stale and causes
+ * `dineout__get_available_slots` to be called with the wrong date.
+ *
+ * Exported for tests; the route handler doesn't call it directly.
+ */
+export function buildTimeContextBlock(now: Date = new Date()): string {
+  const iso = now.toISOString().slice(0, 10); // "2026-05-13"
+  const dow = now.toLocaleDateString("en-US", { weekday: "long" }); // "Wednesday"
+  const monthDay = now.toLocaleDateString("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }); // "May 13, 2026"
+  const hour = now.getHours();
+  const timeOfDay =
+    hour < 5 ? "late night" : hour < 12 ? "morning" : hour < 17 ? "afternoon" : hour < 21 ? "evening" : "night";
+  // Resolve the timezone the server is running in. Falls back to UTC
+  // if Intl is unavailable (shouldn't happen in Node 20+).
+  let tz = "UTC";
+  try {
+    tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
+  } catch {
+    /* keep UTC */
+  }
+
+  // Pre-compute the next 7 dates so the model can resolve "this Friday"
+  // / "next Tuesday" without doing date math at inference time. ISO
+  // dates are zero-ambiguity, unlike spoken phrases.
+  const upcoming: string[] = [];
+  for (let i = 1; i <= 7; i++) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + i);
+    const dayName = d.toLocaleDateString("en-US", { weekday: "long" });
+    const dayIso = d.toISOString().slice(0, 10);
+    upcoming.push(`  - ${dayName}: ${dayIso}`);
+  }
+
+  return [
+    "## Current time context",
+    "",
+    `Right now it is **${dow}, ${monthDay}** (${timeOfDay}, ${tz}).`,
+    "",
+    "When the user says a relative time, resolve it to an ISO date BEFORE calling any tool:",
+    `- \"today\" / \"tonight\" → \`date: \"${iso}\"\``,
+    "- \"tomorrow\" → the next day's ISO",
+    "- \"this Friday\" / \"next Saturday\" → pick from the table below; never guess the year",
+    "",
+    "Upcoming dates (server clock):",
+    upcoming.join("\n"),
+    "",
+    "All slot times returned by tools are 24-hour `HH:MM` in the same timezone — you can speak them naturally (\"seven-thirty\") without conversion.",
+    "",
+  ].join("\n");
+}
+
+/**
+ * Full system prompt: base markdown from disk + time-context block.
+ * Called once per `/api/voice/session` mint, so each fresh session
+ * gets the current date even if the server has been running for days.
+ *
+ * @param now Optional override for the "current time" used in the
+ *            time-context block. Tests pin this to a fixed date so the
+ *            output is deterministic; production always uses now().
+ */
+export function loadSystemPrompt(now?: Date): string {
+  return `${loadBasePrompt()}\n\n${buildTimeContextBlock(now)}`;
 }
 
 // =========================================================================

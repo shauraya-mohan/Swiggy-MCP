@@ -14,6 +14,7 @@
 
 import {
   buildSessionConfig,
+  buildTimeContextBlock,
   loadSystemPrompt,
 } from "../lib/voice/session-config";
 import { TOOLS } from "../lib/mcp/manifest";
@@ -91,11 +92,43 @@ async function main() {
     ["Auditor — verbal readback", /readback/i],
     ["Negotiator — ±30 min flex", /[\u00b1±]30 min|thirty min/i],
     ["Negotiator — similar vibes fallback", /[Ss]imilar.vibes|similar cuisine/i],
+    ["Negotiator — pass band on time-of-day word", /band:\s*"DINNER"|band:\s*"LUNCH"/],
+    ["Negotiator — ask lunch-or-dinner when ambiguous", /[Ll]unch or dinner/],
+    ["Negotiator — pass time when user named an hour", /time:\s*"\d{2}:\d{2}"/],
   ];
 
   for (const [label, re] of moduleRules) {
     assert(re.test(prompt), `prompt covers: ${label}`);
   }
+
+  // -----------------------------------------------------------------------
+  // 3b. Time-context block — agent must know what "today" / "tonight" mean
+  // -----------------------------------------------------------------------
+  section("Time-context injection");
+
+  // Pin a known date so the assertions are deterministic. The chosen
+  // moment is a Wednesday afternoon — exercises both day-of-week and
+  // time-of-day branches.
+  const pinned = new Date("2026-05-13T15:30:00Z");
+  const block = buildTimeContextBlock(pinned);
+
+  assert(block.includes("## Current time context"), "block has the section header");
+  assert(block.includes("2026-05-13"), "block includes today's ISO date");
+  assert(block.includes("Wednesday"), "block names the day of the week");
+  assert(/May 13, 2026/.test(block), "block includes human-readable date");
+  assert(/Right now it is/.test(block), "block opens with a natural sentence the model can lean on");
+  assert(block.includes("Upcoming dates"), "block lists upcoming dates for relative phrases");
+  // Tomorrow (2026-05-14) and one-week-out (2026-05-20) should both be present.
+  assert(block.includes("2026-05-14"), "block lists tomorrow's ISO");
+  assert(block.includes("2026-05-20"), "block lists a date 7 days out");
+  assert(/Thursday: 2026-05-14/.test(block), "tomorrow is correctly labelled Thursday");
+
+  // The full loaded prompt must contain the injected block.
+  const withTime = loadSystemPrompt(pinned);
+  assert(withTime.endsWith(block) || withTime.endsWith(block.trimEnd()) || withTime.endsWith(`${block}\n`),
+    "loadSystemPrompt appends the time-context block at the end");
+  assert(withTime.includes("Kitchen Copilot") && withTime.includes("2026-05-13"),
+    "loadSystemPrompt returns base prompt + time block in one string");
 
   // -----------------------------------------------------------------------
   // 4. Session config shape (matches GA /v1/realtime/client_secrets)
@@ -110,7 +143,15 @@ async function main() {
     "output_modalities has exactly one entry (GA disallows audio+text combo)",
   );
   assert(cfg.session.output_modalities[0] === "audio", "defaults to audio out so the model speaks");
-  assert(cfg.session.instructions === loadSystemPrompt(), "instructions matches the loaded prompt");
+  // Compare by prefix — the prompt ends with a `## Current time context`
+  // block that's recomputed per call, so a strict `===` could flake at a
+  // midnight rollover. The base content (everything before the time
+  // block) must match exactly.
+  const cfgPrompt = cfg.session.instructions;
+  const fresh = loadSystemPrompt();
+  const split = (s: string) => s.split("## Current time context")[0];
+  assert(split(cfgPrompt) === split(fresh), "instructions base matches the loaded prompt (modulo per-call time block)");
+  assert(cfgPrompt.includes("## Current time context"), "instructions include the time-context block");
   assert(cfg.session.tool_choice === "auto", "tool_choice = auto");
 
   // Audio config
