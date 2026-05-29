@@ -15,7 +15,10 @@
     "test:auth": "tsx scripts/test-auth.ts",
     "test:voice": "tsx scripts/test-voice.ts",
     "test:realtime": "tsx scripts/test-realtime.ts",
-    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router && npm run test:auth && npm run test:voice && npm run test:realtime"
+    "test:tool-mapper": "tsx scripts/test-tool-mapper.ts",
+    "test:alfredo": "tsx scripts/test-alfredo-flow.ts",
+    "test:turn-control": "tsx scripts/test-turn-control.ts",
+    "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router && npm run test:auth && npm run test:voice && npm run test:realtime && npm run test:tool-mapper && npm run test:turn-control"
   },
   "dependencies": {
     "clsx": "^2.1.1",

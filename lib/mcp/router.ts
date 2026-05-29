@@ -78,17 +78,26 @@ export async function callTool<T = unknown>(
     return err(`Missing required parameter: ${missing}`, "MISSING_PARAMETER");
   }
 
+  const mode = getMode(ctx);
+
+  // Mock mode runs everything — including mutations — against the in-
+  // memory store. There's no real money on the line, so the LIVE_MUTATIONS
+  // kill-switch doesn't apply here. The user expects "place order" to
+  // succeed end-to-end during demos against the mock backend.
+  if (mode === "mock") {
+    return (await callMockTool(input.server, input.tool, input.args)) as SwiggyResponse<T>;
+  }
+
+  // From here on we're in REAL mode — calls hit Swiggy's MCP server,
+  // which means real Swiggy carts, real orders, real bookings. The
+  // LIVE_MUTATIONS kill-switch gates non-idempotent tools so a
+  // misbehaving agent can't accidentally spend the user's money.
   if (def.isMutation && !getLiveMutations(ctx)) {
     return err(
       `Tool '${input.server}:${input.tool}' is blocked by LIVE_MUTATIONS=false. ` +
-        "This is a non-idempotent mutation and only runs when explicitly enabled.",
+        "This is a non-idempotent mutation against the real Swiggy MCP — only runs when explicitly enabled.",
       "DEMO_MODE_BLOCKED",
     );
-  }
-
-  const mode = getMode(ctx);
-  if (mode === "mock") {
-    return (await callMockTool(input.server, input.tool, input.args)) as SwiggyResponse<T>;
   }
 
   // Real mode requires an access token from the OAuth flow.

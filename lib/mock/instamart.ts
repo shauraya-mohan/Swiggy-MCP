@@ -2,7 +2,7 @@
 // Shapes mirror docs at https://mcp.swiggy.com/builders/docs/reference/instamart/
 
 import { seed } from "./data";
-import { err, genId, jitterDelay, lowerIncludes, nowIso, ok } from "./helpers";
+import { err, genId, jitterDelay, nowIso, ok, scoreSearchMatch, tokenize } from "./helpers";
 import { store } from "./store";
 import type {
   Address,
@@ -109,15 +109,29 @@ export async function search_products(args: SearchProductsArgs): Promise<SwiggyR
   if (!args.addressId) return err("addressId is required");
   if (!args.query) return err("query is required");
 
-  const q = args.query.toLowerCase();
-  const matches = seed.products.filter(
-    (p) =>
-      lowerIncludes(p.name, q) ||
-      lowerIncludes(p.category, q) ||
-      (p.brand && lowerIncludes(p.brand, q)),
-  );
+  // Token-scored search. See lib/mock/helpers.ts → scoreSearchMatch for
+  // the scoring model. Critically, brand matching is exact-token-only
+  // (no substring / no prefix) — so a search for "milk" no longer
+  // surfaces "Milky Mist Paneer" via its brand.
+  const queryTokens = tokenize(args.query);
+  if (queryTokens.length === 0) return err("query is required");
 
-  return ok({ products: matches, nextOffset: null });
+  const scored = seed.products
+    .map((p) => ({
+      product: p,
+      score: scoreSearchMatch(queryTokens, {
+        name: p.name,
+        category: p.category,
+        brand: p.brand,
+      }),
+    }))
+    .filter((x) => x.score > 0)
+    .sort((a, b) => {
+      if (a.score !== b.score) return b.score - a.score;
+      return (b.product.rating ?? 0) - (a.product.rating ?? 0);
+    });
+
+  return ok({ products: scored.map((x) => x.product), nextOffset: null });
 }
 
 // --- 5. your_go_to_items --------------------------------------------------
@@ -143,10 +157,35 @@ export async function update_cart(args: UpdateCartArgs): Promise<SwiggyResponse<
   await jitterDelay();
 
   if (args.addressId) store.instamartCart.addressId = args.addressId;
-  store.instamartCart.items = [];
+
+  // MERGE semantics — the agent's mental model and the function name
+  // both imply "update the cart with these changes", not "PUT the cart
+  // wholesale". Each line in args.items adjusts ONE item:
+  //
+  //   quantity > 0  → upsert (set quantity to N, add if not present)
+  //   quantity == 0 → remove this item
+  //   quantity < 0  → skip (treat as no-op rather than error)
+  //
+  // Items already in the cart that are NOT mentioned in args stay
+  // untouched. To clear the whole cart, use clear_cart.
+  //
+  // The previous implementation wiped store.items=[] before re-adding
+  // — which meant the agent calling update_cart([milk]) after already
+  // having [butter, cream, garlic] would lose the other three. This
+  // showed up as "subtotal ₹92, below minimum" when the user expected
+  // ₹230+. See scenarios.ts → cartMergeRegression for the regression
+  // lock.
 
   for (const line of args.items) {
-    if (line.quantity <= 0) continue;
+    if (line.quantity < 0) continue;
+
+    if (line.quantity === 0) {
+      store.instamartCart.items = store.instamartCart.items.filter(
+        (i) => i.spinId !== line.spinId,
+      );
+      continue;
+    }
+
     const found = findVariant(line.spinId);
     if (!found) return err(`Product variant ${line.spinId} not found`, "PRODUCT_NOT_FOUND");
     if (!found.variant.inStock) {
@@ -155,13 +194,20 @@ export async function update_cart(args: UpdateCartArgs): Promise<SwiggyResponse<
 
     const cartItem: InstamartCartItem = {
       spinId: found.variant.spinId,
+      productId: found.product.id,
       productName: found.product.name,
       variantName: found.variant.name,
       quantity: line.quantity,
       unitPrice: found.variant.price,
       lineTotal: found.variant.price * line.quantity,
     };
-    store.instamartCart.items.push(cartItem);
+
+    const existingIdx = store.instamartCart.items.findIndex((i) => i.spinId === line.spinId);
+    if (existingIdx >= 0) {
+      store.instamartCart.items[existingIdx] = cartItem;
+    } else {
+      store.instamartCart.items.push(cartItem);
+    }
   }
 
   recomputeInstamartCart(store.instamartCart);

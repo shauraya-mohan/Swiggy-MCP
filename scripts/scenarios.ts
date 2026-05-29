@@ -486,7 +486,10 @@ async function negotiator30MinFlex() {
 
   // Find slots at the requested date
   const requestedDate = slots.slots.filter((s) => s.date === "2026-05-15");
-  assert(requestedDate.length >= 20, "requested date has the full day grid");
+  // 8 lunch slots (12:00–15:30) + 10 dinner slots (18:00–22:30) = 18.
+  // Restaurants are closed 16:00–17:30 (the dead zone between services),
+  // so no slots there — see lib/mock/dineout.ts generateSlots.
+  assert(requestedDate.length === 18, "requested date has both lunch + dinner grids (8 + 10 = 18)");
 
   // Look for 20:00 on requested date
   const at8pm = requestedDate.find((s) => s.time === "20:00");
@@ -705,6 +708,208 @@ async function combinedPlanMyEvening() {
   assert(store.bookings.length >= 1, "store has the dineout booking");
 }
 
+// ---- search quality regressions ------------------------------------------
+//
+// Specific bug the user reported: searching for "milk" surfaced
+// "Milky Mist Paneer" because the search did naïve substring matching
+// on the brand field ("Milky Mist" contains the string "milk"). The
+// new tokenized search must NOT return paneer for "milk".
+async function searchQualityRegressions() {
+  console.log(`\n${Y}== Search quality regressions ==${X}`);
+  const milk = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", {
+      addressId: HOME,
+      query: "milk",
+    }),
+    "search_products(milk)",
+  );
+  const milkNames = milk.products.map((p) => p.name);
+  assert(milkNames.includes("Milk"), "‘milk’ search returns the Milk product");
+  assert(
+    !milkNames.includes("Paneer"),
+    "‘milk’ search does NOT return Paneer (brand 'Milky Mist' bug)",
+    `got: ${milkNames.join(", ")}`,
+  );
+
+  // The companion direction: searching for "paneer" finds Paneer.
+  const paneer = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", {
+      addressId: HOME,
+      query: "paneer",
+    }),
+    "search_products(paneer)",
+  );
+  assert(
+    paneer.products.some((p) => p.name === "Paneer"),
+    "‘paneer’ search finds the Paneer product (name hit)",
+  );
+
+  // Searching the brand explicitly should still work.
+  const milky = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", {
+      addressId: HOME,
+      query: "milky",
+    }),
+    "search_products(milky)",
+  );
+  assert(
+    milky.products.some((p) => p.brand === "Milky Mist"),
+    "‘milky’ (exact brand token) finds Milky Mist products",
+  );
+
+  // Plural insensitivity: "onions" finds Onion (and not unrelated stuff).
+  const onions = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", {
+      addressId: HOME,
+      query: "onions",
+    }),
+    "search_products(onions)",
+  );
+  assert(
+    onions.products.some((p) => p.name === "Onion"),
+    "‘onions’ (plural) finds singular ‘Onion’",
+  );
+
+  // Category search still works.
+  const dairy = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", {
+      addressId: HOME,
+      query: "dairy",
+    }),
+    "search_products(dairy)",
+  );
+  assert(
+    dairy.products.length >= 2,
+    "‘dairy’ category search returns multiple dairy products",
+  );
+
+  // Unknown ingredient → empty array (don't pretend).
+  const unknown = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", {
+      addressId: HOME,
+      query: "kebab",
+    }),
+    "search_products(kebab)",
+  );
+  assert(
+    unknown.products.length === 0,
+    "‘kebab’ (no such product) returns empty array (no false positives)",
+    `got ${unknown.products.length} matches`,
+  );
+}
+
+// ---- cart merge regression ----------------------------------------------
+//
+// Lock-in for the bug the user hit in the alfredo flow: agent adds
+// butter, cream, garlic, then later calls `update_cart` for milk only.
+// Previously this WIPED the basket (subtotal collapsed to ~₹62 and the
+// minimum-order check started failing). update_cart now MERGES.
+
+async function cartMergeRegression() {
+  console.log(`\n${Y}== cart merge: update_cart only adjusts what you pass ==${X}`);
+  resetForFreshRun();
+
+  const milk = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", { addressId: HOME, query: "milk" }),
+    "search_products(milk)",
+  );
+  const butter = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", { addressId: HOME, query: "butter" }),
+    "search_products(butter)",
+  );
+  const cream = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", { addressId: HOME, query: "cream" }),
+    "search_products(cream)",
+  );
+  const garlic = unwrap(
+    await call<{ products: Product[] }>("im", "search_products", { addressId: HOME, query: "garlic" }),
+    "search_products(garlic)",
+  );
+
+  assert(butter.products.length > 0, "butter is available");
+  assert(cream.products.length > 0, "cream is available");
+  assert(garlic.products.length > 0, "garlic is available");
+  assert(milk.products.length > 0, "milk is available");
+  if (!butter.products.length || !cream.products.length || !garlic.products.length || !milk.products.length) return;
+
+  const butterSpin = butter.products[0].variants.find((v) => v.inStock)!.spinId;
+  const creamSpin = cream.products[0].variants.find((v) => v.inStock)!.spinId;
+  const garlicSpin = garlic.products[0].variants.find((v) => v.inStock)!.spinId;
+  // Pick a 1L milk variant if available, else any in-stock.
+  const milkVariant =
+    milk.products[0].variants.find((v) => v.inStock && /1\s?l/i.test(v.name)) ??
+    milk.products[0].variants.find((v) => v.inStock)!;
+  const milkSpin = milkVariant.spinId;
+
+  // Initial batch: butter + cream + garlic.
+  const cart1 = unwrap(
+    await call<InstamartCart>("im", "update_cart", {
+      addressId: HOME,
+      items: [
+        { spinId: butterSpin, quantity: 1 },
+        { spinId: creamSpin, quantity: 1 },
+        { spinId: garlicSpin, quantity: 1 },
+      ],
+    }),
+    "update_cart([butter, cream, garlic])",
+  );
+  assert(cart1.items.length === 3, "first call: 3 items in cart");
+  const subtotalAfterBatch = cart1.subtotal;
+
+  // The bug-reproducer: add milk alone, the OLD code wipes the cart.
+  const cart2 = unwrap(
+    await call<InstamartCart>("im", "update_cart", {
+      addressId: HOME,
+      items: [{ spinId: milkSpin, quantity: 1 }],
+    }),
+    "update_cart([milk]) preserves prior items",
+  );
+
+  const spinsAfter = cart2.items.map((i) => i.spinId);
+  assert(spinsAfter.includes(butterSpin), "butter survives the milk add");
+  assert(spinsAfter.includes(creamSpin), "cream survives the milk add");
+  assert(spinsAfter.includes(garlicSpin), "garlic survives the milk add");
+  assert(spinsAfter.includes(milkSpin), "milk is now in the cart");
+  assert(cart2.items.length === 4, "cart has 4 items, not 1");
+  assert(
+    cart2.subtotal === subtotalAfterBatch + milkVariant.price,
+    "subtotal = batch + milk (no items vanished)",
+    `${cart2.subtotal} vs expected ${subtotalAfterBatch + milkVariant.price}`,
+  );
+
+  // Quantity update on an existing line: SET to new value.
+  const cart3 = unwrap(
+    await call<InstamartCart>("im", "update_cart", {
+      addressId: HOME,
+      items: [{ spinId: milkSpin, quantity: 2 }],
+    }),
+    "update_cart([milk x2]) sets quantity",
+  );
+  const milkLine = cart3.items.find((i) => i.spinId === milkSpin)!;
+  assert(milkLine.quantity === 2, "milk quantity is now 2");
+  assert(cart3.items.length === 4, "still 4 distinct items (no duplicates)");
+
+  // Remove an item by passing quantity = 0.
+  const cart4 = unwrap(
+    await call<InstamartCart>("im", "update_cart", {
+      addressId: HOME,
+      items: [{ spinId: garlicSpin, quantity: 0 }],
+    }),
+    "update_cart([garlic q0]) removes",
+  );
+  assert(
+    !cart4.items.some((i) => i.spinId === garlicSpin),
+    "garlic removed by quantity=0",
+  );
+  assert(cart4.items.length === 3, "3 items remain after removal");
+
+  // productId is populated so the UI can dedupe cards.
+  assert(
+    cart4.items.every((i) => typeof i.productId === "string" && i.productId.length > 0),
+    "every cart item carries its productId",
+  );
+}
+
 // ---- runner --------------------------------------------------------------
 
 async function main() {
@@ -723,10 +928,12 @@ async function main() {
   await negotiatorIdempotency();
   await voiceContractHygiene();
   await combinedPlanMyEvening();
+  await searchQualityRegressions();
+  await cartMergeRegression();
 
   console.log("");
   if (failed === 0) {
-    console.log(`${G}\u2713 ${passed} assertions across 12 PRD scenarios all green.${X}\n`);
+    console.log(`${G}\u2713 ${passed} assertions across 13 PRD scenarios all green.${X}\n`);
     process.exit(0);
   } else {
     console.log(`${R}\u2717 ${failed} of ${passed + failed} assertions failed:${X}`);

@@ -2,7 +2,7 @@
 // Shapes mirror docs at https://mcp.swiggy.com/builders/docs/reference/food/
 
 import { seed } from "./data";
-import { err, genId, jitterDelay, lowerIncludes, nowIso, ok } from "./helpers";
+import { err, genId, jitterDelay, nowIso, ok, scoreSearchMatch, tokenize } from "./helpers";
 import { store } from "./store";
 import type {
   FoodCart,
@@ -70,30 +70,47 @@ export async function search_restaurants(args: SearchRestaurantsArgs): Promise<S
   if (!args.addressId) return err("addressId is required");
   if (!args.query) return err("query is required");
 
-  const q = args.query.toLowerCase();
-  const matches = seed.foodRestaurants.filter((r) => {
-    if (lowerIncludes(r.name, q)) return true;
-    if (r.cuisines.some((c) => lowerIncludes(c, q))) return true;
-    // Match on menu items — PRD §3.2 "find a place with spicy wings"
+  // Token-scored search. The restaurant gets points for name + cuisine
+  // hits, plus a smaller bump if any of its menu items match the query
+  // (so "spicy wings" still finds Truffles via its menu — PRD §3.2).
+  const queryTokens = tokenize(args.query);
+  if (queryTokens.length === 0) return err("query is required");
+
+  const scored = seed.foodRestaurants.map((r) => {
+    let score = scoreSearchMatch(queryTokens, {
+      name: r.name,
+      category: r.cuisines,
+    });
     const menu = seed.menus[r.id];
-    if (!menu) return false;
-    return menu.categories.some((cat) =>
-      cat.items.some(
-        (item) =>
-          lowerIncludes(item.name, q) ||
-          lowerIncludes(item.description, q) ||
-          lowerIncludes(cat.name, q),
-      ),
-    );
+    if (menu) {
+      // Menu hits count, but at half the weight of a name/cuisine hit
+      // — we don't want a restaurant whose only signal is a single
+      // matching menu item to outrank one whose name literally matches.
+      for (const cat of menu.categories) {
+        for (const item of cat.items) {
+          score += scoreSearchMatch(
+            queryTokens,
+            { name: item.name, category: cat.name, description: item.description },
+            { name: 5, category: 2, description: 1 },
+          );
+        }
+      }
+    }
+    return { restaurant: r, score };
   });
 
-  // Mild ranking: open restaurants first, then by rating desc per docs guidance.
-  matches.sort((a, b) => {
-    if (a.availabilityStatus !== b.availabilityStatus) {
-      return a.availabilityStatus === "OPEN" ? -1 : 1;
-    }
-    return b.rating - a.rating;
-  });
+  const matches = scored
+    .filter((x) => x.score > 0)
+    .sort((a, b) => {
+      // Open restaurants float to the top regardless of relevance —
+      // users can't actually order from a closed one.
+      if (a.restaurant.availabilityStatus !== b.restaurant.availabilityStatus) {
+        return a.restaurant.availabilityStatus === "OPEN" ? -1 : 1;
+      }
+      if (a.score !== b.score) return b.score - a.score;
+      return b.restaurant.rating - a.restaurant.rating;
+    })
+    .map((x) => x.restaurant);
 
   const offset = args.offset ?? 0;
   const page = matches.slice(offset, offset + PAGE_SIZE);
@@ -116,31 +133,38 @@ export async function search_menu(args: SearchMenuArgs): Promise<SwiggyResponse<
   await jitterDelay();
   if (!args.query) return err("query is required");
 
-  const q = args.query.toLowerCase();
+  const queryTokens = tokenize(args.query);
+  if (queryTokens.length === 0) return err("query is required");
+
   const restaurantsToScan = args.restaurantId
     ? [seed.menus[args.restaurantId]].filter(Boolean)
     : Object.values(seed.menus);
 
-  const results: Array<MenuItem & { restaurantId: string; restaurantName: string }> = [];
+  type Scored = {
+    item: MenuItem & { restaurantId: string; restaurantName: string };
+    score: number;
+  };
+  const scored: Scored[] = [];
   for (const menu of restaurantsToScan) {
     if (!menu) continue;
     for (const cat of menu.categories) {
       for (const item of cat.items) {
-        if (
-          lowerIncludes(item.name, q) ||
-          lowerIncludes(item.description, q) ||
-          lowerIncludes(cat.name, q)
-        ) {
-          results.push({
-            ...item,
-            restaurantId: menu.restaurantId,
-            restaurantName: menu.restaurantName,
+        const score = scoreSearchMatch(queryTokens, {
+          name: item.name,
+          category: cat.name,
+          description: item.description,
+        });
+        if (score > 0) {
+          scored.push({
+            item: { ...item, restaurantId: menu.restaurantId, restaurantName: menu.restaurantName },
+            score,
           });
         }
       }
     }
   }
-  return ok({ results });
+  scored.sort((a, b) => b.score - a.score);
+  return ok({ results: scored.map((x) => x.item) });
 }
 
 // --- 4. get_restaurant_menu -----------------------------------------------
@@ -190,7 +214,8 @@ export async function update_food_cart(args: UpdateFoodCartArgs): Promise<Swiggy
     return err(`${restaurant.name} is currently ${restaurant.availabilityStatus.toLowerCase()}.`, "RESTAURANT_NOT_OPEN");
   }
 
-  // Cart binds to a single restaurant — switching flushes per docs.
+  // Cart binds to a single restaurant — switching wholesale clears the
+  // basket and any coupon (food carts can't mix restaurants per docs).
   if (
     store.foodCart.restaurantId &&
     store.foodCart.restaurantId !== args.restaurantId
@@ -201,10 +226,28 @@ export async function update_food_cart(args: UpdateFoodCartArgs): Promise<Swiggy
 
   store.foodCart.restaurantId = restaurant.id;
   store.foodCart.restaurantName = restaurant.name;
-  store.foodCart.items = [];
+
+  // MERGE semantics for line items — same reasoning as im__update_cart.
+  // Dedupe key is itemId + variantId + sorted(addOnIds), so the same
+  // dish ordered with different mods becomes a separate line.
+  const lineKey = (
+    itemId: string,
+    variantId: string | undefined,
+    addOnIds: string[] | undefined,
+  ): string =>
+    `${itemId}::${variantId ?? ""}::${[...(addOnIds ?? [])].sort().join(",")}`;
 
   for (const line of args.items) {
-    if (line.quantity <= 0) continue;
+    if (line.quantity < 0) continue;
+    const key = lineKey(line.itemId, line.variantId, line.addOnIds);
+
+    if (line.quantity === 0) {
+      store.foodCart.items = store.foodCart.items.filter(
+        (i) => lineKey(i.itemId, i.variantId, i.addOnIds) !== key,
+      );
+      continue;
+    }
+
     const item = findMenuItem(restaurant.id, line.itemId);
     if (!item) return err(`Item ${line.itemId} not found`, "ITEM_NOT_FOUND");
 
@@ -229,7 +272,15 @@ export async function update_food_cart(args: UpdateFoodCartArgs): Promise<Swiggy
       unitPrice,
       lineTotal: unitPrice * line.quantity,
     };
-    store.foodCart.items.push(cartItem);
+
+    const existingIdx = store.foodCart.items.findIndex(
+      (i) => lineKey(i.itemId, i.variantId, i.addOnIds) === key,
+    );
+    if (existingIdx >= 0) {
+      store.foodCart.items[existingIdx] = cartItem;
+    } else {
+      store.foodCart.items.push(cartItem);
+    }
   }
 
   recomputeCart(store.foodCart);

@@ -380,13 +380,22 @@ const DINEOUT_TOOLS: ToolDef[] = [
   {
     server: "dineout",
     name: "get_available_slots",
-    description: "Get bookable time slots for a date + party size. If user-requested time is unavailable, check ±30 min flex.",
+    description: "Get bookable time slots for a date + party size. Pass `band` when the user said a time-of-day word (tonight, dinner, lunch); pass `time` when the user said a specific hour so the panel and your voice talk about the same 5 slots.",
     parameters: {
       type: "object",
       properties: {
         restaurantId: { type: "string" },
         date: { type: "string", description: "ISO date YYYY-MM-DD." },
         guestCount: { type: "integer" },
+        band: {
+          type: "string",
+          enum: ["LUNCH", "DINNER"],
+          description: "Time-of-day filter. Use DINNER for tonight/this evening/dinner; LUNCH for noon/lunch. Omit only if the user gave no time-of-day signal and you've already asked them or are showing them the full day.",
+        },
+        time: {
+          type: "string",
+          description: "Preferred clock time in 24-hour 'HH:MM' (e.g., '20:00' for 8 PM). The response narrows to a 5-slot window centered on this time, INCLUDING any unavailable slots — so when you call out 'eight is full', the panel will show the 8 PM card dimmed and the user can see what you're talking about. Always pass this when the user mentioned a specific hour.",
+        },
       },
       required: ["restaurantId", "date", "guestCount"],
     },

@@ -107,11 +107,13 @@ async function main() {
   // -------------------------------------------------------------------------
   // 3. LIVE_MUTATIONS kill-switch
   // -------------------------------------------------------------------------
-  section("LIVE_MUTATIONS kill-switch");
+  section("LIVE_MUTATIONS kill-switch (real-mode only)");
 
+  // In MOCK mode the kill-switch is a no-op — there's no real money at
+  // stake, so mutations run end-to-end against the in-memory store.
+  // The user expects demos to work without setting LIVE_MUTATIONS=true.
   for (const handle of expectedMutations) {
     const [server, tool] = handle.split(":") as ["food" | "im" | "dineout", string];
-    // Build minimal valid args for each mutation tool
     let args: Record<string, unknown> = {};
     if (handle === "food:place_food_order") args = { addressId: "addr_01HXHM" };
     if (handle === "dineout:book_table") args = {
@@ -122,31 +124,57 @@ async function main() {
       time: "20:00",
     };
 
-    const blocked = await callTool({ server, tool, args }, { liveMutations: false });
-    assert(!blocked.success, `${handle} blocked when LIVE_MUTATIONS=false`);
-    if (!blocked.success) {
-      assert(blocked.error.code === "DEMO_MODE_BLOCKED", `${handle} returns DEMO_MODE_BLOCKED`);
+    const mockBlocked = await callTool(
+      { server, tool, args },
+      { mode: "mock", liveMutations: false },
+    );
+    // Mock mode is permissive — the call reaches the mock, which may
+    // succeed or fail for *its own* reasons (e.g. empty cart), but
+    // NEVER with DEMO_MODE_BLOCKED.
+    if (!mockBlocked.success) {
+      assert(
+        mockBlocked.error.code !== "DEMO_MODE_BLOCKED",
+        `${handle} in mock mode is NOT gated by LIVE_MUTATIONS`,
+        mockBlocked.error.code,
+      );
+    } else {
+      assert(true, `${handle} in mock mode runs through to the mock`);
+    }
+
+    // In REAL mode (no token, kill-switch off) we expect DEMO_MODE_BLOCKED
+    // to fire BEFORE the missing-token check, since the kill-switch is
+    // the broader guard.
+    const realBlocked = await callTool(
+      { server, tool, args },
+      { mode: "real", liveMutations: false },
+    );
+    assert(!realBlocked.success, `${handle} blocked in real mode when LIVE_MUTATIONS=false`);
+    if (!realBlocked.success) {
+      assert(
+        realBlocked.error.code === "DEMO_MODE_BLOCKED",
+        `${handle} returns DEMO_MODE_BLOCKED in real mode`,
+      );
     }
   }
 
-  // With LIVE_MUTATIONS=true, the request reaches the mock (which may legitimately
-  // fail on its own grounds — e.g. empty cart — but no longer with DEMO_MODE_BLOCKED).
+  // With LIVE_MUTATIONS=true the real-mode call falls through to the
+  // missing-token check (UNAUTHENTICATED), confirming the kill-switch
+  // is lifted.
   const liveAttempt = await callTool(
     { server: "food", tool: "place_food_order", args: { addressId: "addr_01HXHM" } },
-    { liveMutations: true },
+    { mode: "real", liveMutations: true },
   );
+  assert(!liveAttempt.success, "real mode without token fails (kill-switch lifted, missing token)");
   if (!liveAttempt.success) {
     assert(
-      liveAttempt.error.code !== "DEMO_MODE_BLOCKED",
-      "with LIVE_MUTATIONS=true the kill-switch is lifted",
+      liveAttempt.error.code === "UNAUTHENTICATED",
+      "with LIVE_MUTATIONS=true the kill-switch is lifted; next gate is the token",
       liveAttempt.error.code,
     );
-  } else {
-    assert(true, "with LIVE_MUTATIONS=true a real call reaches the mock");
   }
 
-  // Non-mutation tools never hit the kill-switch
-  const readOnly = await callTool({ server: "food", tool: "get_addresses", args: {} }, { liveMutations: false });
+  // Non-mutation tools never hit the kill-switch, in either mode.
+  const readOnly = await callTool({ server: "food", tool: "get_addresses", args: {} }, { mode: "mock", liveMutations: false });
   assert(readOnly.success, "read-only tools are never gated by LIVE_MUTATIONS");
 
   // -------------------------------------------------------------------------

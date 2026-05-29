@@ -152,6 +152,13 @@ export interface GoToItem {
 
 export interface InstamartCartItem {
   spinId: string;
+  /**
+   * Parent product id (the SKU id, not the SPIN/variant id). Lets the
+   * UI dedupe cards by product across search results and cart updates —
+   * a search for "milk" and a subsequent "added 1L pack" both refer
+   * to the same product, so they should share a card slot, not stack.
+   */
+  productId: string;
   productName: string;
   variantName: string;
   quantity: number;

@@ -33,11 +33,30 @@ function generateSlots(restaurantId: string, dateStr: string): DineoutSlot[] {
     return r / 233280;
   };
 
-  for (let hour = 12; hour <= 22; hour++) {
+  // Restaurants run two services with a dead zone in between:
+  //   LUNCH   12:00 – 15:30
+  //   (closed 16:00 – 17:30 — staff break, no slots generated)
+  //   DINNER  18:00 – 22:30
+  //
+  // The previous "everything 12:00–16:00 is LUNCH, after that DINNER"
+  // split made the Negotiator panel surface 4:30 PM as "DINNER", which
+  // the user (correctly) flagged as wrong — 4:30 PM is tea time, not
+  // dinner. Skipping the dead zone means the agent and the panel can
+  // only ever speak about realistic service times, and "DINNER" slots
+  // actually mean what people mean when they say dinner.
+  const lunchStart = 12;
+  const lunchEnd = 15; // last lunch hour (12, 12:30, … 15, 15:30)
+  const dinnerStart = 18;
+  const dinnerEnd = 22; // last dinner hour (18, 18:30, … 22, 22:30)
+
+  for (let hour = lunchStart; hour <= dinnerEnd; hour++) {
+    const inLunch = hour >= lunchStart && hour <= lunchEnd;
+    const inDinner = hour >= dinnerStart && hour <= dinnerEnd;
+    if (!inLunch && !inDinner) continue; // skip the dead zone
+
     for (const min of [0, 30]) {
       const time = `${hour.toString().padStart(2, "0")}:${min.toString().padStart(2, "0")}`;
-      const band: DineoutSlotBand =
-        hour < 15 ? "LUNCH" : hour < 18 ? "LUNCH" : "DINNER";
+      const band: DineoutSlotBand = inLunch ? "LUNCH" : "DINNER";
       // 20% of slots unavailable on the requested date for variety.
       const available = rng() > 0.2;
       slots.push({
@@ -122,17 +141,52 @@ export interface GetAvailableSlotsArgs {
   restaurantId: string;
   date: string;
   guestCount: number;
+  /**
+   * Optional time-of-day filter. When the user says "table tonight"
+   * or "for dinner", the agent should pass `band: "DINNER"` so the
+   * panel surfaces evening slots only. Same for `"LUNCH"`. When
+   * absent the mock returns both bands and the mapper's heuristic
+   * takes over (which is good for "table tomorrow" without a
+   * time-of-day word — the agent should ask first, but if it
+   * doesn't, we degrade gracefully).
+   */
+  band?: DineoutSlotBand;
+  /**
+   * User's preferred clock time as 24-hour "HH:MM" (e.g., "20:00"
+   * for 8 PM). When passed, the response is narrowed to a 5-slot
+   * window CENTERED on that time, so the Negotiator panel and the
+   * agent's voice agree on which slots are being discussed —
+   * including unavailable ones the agent might mention as "full".
+   *
+   * Without this, the mock returns the whole band and the mapper
+   * picks the 5 earliest available, which silently hides any
+   * specific time the user actually asked about. The user has
+   * already gotten burned by this once: agent said "8 PM is full,
+   * 7:30 or 8:30 available", but the panel showed 6/6:30/7/7:30/8:30
+   * — no 8 PM card at all.
+   */
+  time?: string;
 }
 
 export async function get_available_slots(args: GetAvailableSlotsArgs): Promise<SwiggyResponse<{
   slots: DineoutSlot[];
   date: string;
   forwardDays: number;
+  /** Echoed back so the UI mapper knows which band the agent asked for. */
+  band?: DineoutSlotBand;
+  /** Echoed back so the mapper can highlight the user's requested time. */
+  centerTime?: string;
 }>> {
   await jitterDelay();
   if (!args.restaurantId) return err("restaurantId is required");
   if (!args.date) return err("date is required (YYYY-MM-DD)");
   if (!args.guestCount || args.guestCount < 1) return err("guestCount is required");
+  if (args.band && args.band !== "LUNCH" && args.band !== "DINNER") {
+    return err("band must be either 'LUNCH' or 'DINNER' if provided");
+  }
+  if (args.time && !/^\d{1,2}:\d{2}$/.test(args.time)) {
+    return err("time must be 24-hour 'HH:MM' if provided");
+  }
 
   const restaurant = seed.dineoutRestaurants.find((r) => r.id === args.restaurantId);
   if (!restaurant) return err("Restaurant not found", "RESTAURANT_NOT_FOUND");
@@ -146,11 +200,90 @@ export async function get_available_slots(args: GetAvailableSlotsArgs): Promise<
     allSlots.push(...generateSlots(args.restaurantId, dateStr));
   }
 
-  return ok({
-    slots: allSlots,
-    date: args.date,
-    forwardDays: DAYS_FORWARD,
+  // Band filter narrows the panel to the user's intent. Without this
+  // the panel happily surfaces 12 PM lunch when the user said "tonight"
+  // because the mock returns every slot for 7 days. The agent is now
+  // expected to pass `band` whenever the user mentioned a time-of-day
+  // word (see Negotiator rules in agent/prompts/system.md).
+  let filtered = args.band ? allSlots.filter((s) => s.band === args.band) : allSlots;
+
+  // When the user said a specific time, narrow the response to a
+  // 5-slot window centered on the closest match. This solves the
+  // "agent talks about 8 PM but panel doesn't show 8 PM" mismatch:
+  // both sides now see the same 5 slots — including the unavailable
+  // ones the agent might call out by name.
+  if (args.time) {
+    filtered = centerWindowOnTime(filtered, args.date, args.time);
+  }
+
+  return {
+    success: true,
+    data: {
+      slots: filtered,
+      date: args.date,
+      forwardDays: DAYS_FORWARD,
+      ...(args.band ? { band: args.band } : {}),
+      ...(args.time ? { centerTime: args.time } : {}),
+    },
+  };
+}
+
+/**
+ * Narrow a slot pool to ±2 slots around the user's requested time on
+ * the requested date. Returns 5 contiguous slots from the same day
+ * (or fewer if the day doesn't have that many slots).
+ *
+ * Why "on the requested date" matters: the mock generates 7 days of
+ * slots, but the user said "table tomorrow at 8 PM" — they don't
+ * care about the day after that. Locking the window to the requested
+ * date keeps the panel coherent with the user's mental model.
+ */
+function centerWindowOnTime(
+  slots: DineoutSlot[],
+  requestedDate: string,
+  requestedTime: string,
+): DineoutSlot[] {
+  // Only the requested date counts; the other days are bonus context
+  // the agent doesn't need for ±30 min flex.
+  const day = slots.filter((s) => s.date === requestedDate);
+  if (day.length === 0) return slots; // defensive: don't return empty
+  // Sort chronologically so "before / after" semantics are honoured.
+  day.sort((a, b) => a.time.localeCompare(b.time));
+
+  // Convert HH:MM to minutes-since-midnight for distance comparison.
+  const toMinutes = (t: string): number => {
+    const [h, m] = t.split(":").map(Number);
+    return h * 60 + m;
+  };
+  const target = toMinutes(requestedTime);
+  // Find the slot index in `day` that's closest to the requested time.
+  let closestIdx = 0;
+  let closestDist = Number.POSITIVE_INFINITY;
+  day.forEach((s, i) => {
+    const d = Math.abs(toMinutes(s.time) - target);
+    if (d < closestDist) {
+      closestDist = d;
+      closestIdx = i;
+    }
   });
+
+  // Take a window of 5 around the closest match. Clamp to array bounds
+  // (if the user said "10 PM" and 10 PM is the last slot, we still
+  // want 5 slots — pad to the left).
+  const WINDOW = 5;
+  const half = Math.floor(WINDOW / 2); // 2 slots on each side, target in middle
+  let start = closestIdx - half;
+  let end = start + WINDOW;
+  if (start < 0) {
+    end -= start; // shift right by abs(start)
+    start = 0;
+  }
+  if (end > day.length) {
+    start -= end - day.length;
+    end = day.length;
+    if (start < 0) start = 0;
+  }
+  return day.slice(start, end);
 }
 
 // --- 5. create_cart -------------------------------------------------------
