@@ -272,6 +272,131 @@ assert(
   "dine wins when both keywords present (more specific match)",
 );
 
+// "order" as a NOUN referring to an existing order — should NOT switch
+// intent. These are the false-positives we hit in the wild.
+assert(
+  intentFromUserText("track my last order") === null,
+  "‘track my last order’ → null (existing order, not new)",
+);
+assert(
+  intentFromUserText("where's my order") === null,
+  "‘where's my order’ → null",
+);
+assert(
+  intentFromUserText("cancel that order") === null,
+  "‘cancel that order’ → null",
+);
+assert(
+  intentFromUserText("any update on my order") === null,
+  "‘update on my order’ → null",
+);
+assert(
+  intentFromUserText("report missing items in my last order") === null,
+  "‘report missing in order’ → null",
+);
+// And the positive cases still work even with the new tighter regex.
+assert(
+  intentFromUserText("I want to order chinese") === "order",
+  "‘want to order chinese’ → order",
+);
+assert(
+  intentFromUserText("place an order from Biryani House") === "order",
+  "‘place an order’ → order",
+);
+
+// ===== Expanded keyword coverage (the "let's make some pasta" bug) =====
+
+group("3c. intentFromUserText — COOK: verb + food noun");
+
+assert(intentFromUserText("let's make some pasta") === "cook", "‘let's make some pasta’ → cook");
+assert(intentFromUserText("lets make some pasta") === "cook", "‘lets make some pasta’ (no apostrophe) → cook");
+assert(intentFromUserText("let's make pasta") === "cook", "‘let's make pasta’ (no article) → cook");
+assert(intentFromUserText("let's make us some pasta") === "cook", "‘make us some pasta’ → cook");
+assert(intentFromUserText("I'll make pizza tonight") === "cook", "‘I'll make pizza tonight’ → cook");
+assert(intentFromUserText("wanna make a sandwich") === "cook", "‘wanna make a sandwich’ → cook");
+assert(intentFromUserText("gonna make some eggs") === "cook", "‘gonna make some eggs’ → cook");
+assert(intentFromUserText("I want to make biryani") === "cook", "‘want to make biryani’ → cook");
+assert(intentFromUserText("how about we make pasta") === "cook", "‘how about we make pasta’ → cook");
+assert(intentFromUserText("let me make a salad") === "cook", "‘let me make a salad’ → cook");
+assert(intentFromUserText("we should make breakfast") === "cook", "‘we should make breakfast’ → cook");
+assert(intentFromUserText("preparing some pasta") === "cook", "‘preparing some pasta’ → cook");
+assert(intentFromUserText("fix me a sandwich") === "cook", "‘fix me a sandwich’ → cook");
+assert(intentFromUserText("throw together a salad") === "cook", "‘throw together a salad’ → cook");
+assert(intentFromUserText("let's make dinner") === "cook", "‘make dinner’ (meal category) → cook");
+assert(intentFromUserText("let's make us some food") === "cook", "‘make us some food’ (generic food) → cook");
+assert(intentFromUserText("let's make something to eat") === "cook", "‘something to eat’ → cook");
+
+group("3d. intentFromUserText — COOK: direct cooking verbs / idioms");
+
+assert(intentFromUserText("baking cookies tonight") === "cook", "‘baking cookies’ → cook");
+assert(intentFromUserText("let's bake bread") === "cook", "‘bake bread’ → cook");
+assert(intentFromUserText("whip up some eggs") === "cook", "‘whip up eggs’ → cook");
+assert(intentFromUserText("cook up some dal") === "cook", "‘cook up dal’ → cook");
+assert(intentFromUserText("homemade pasta tonight") === "cook", "‘homemade’ → cook");
+assert(intentFromUserText("from scratch today") === "cook", "‘from scratch’ → cook");
+assert(intentFromUserText("got a recipe for biryani") === "cook", "‘recipe for biryani’ → cook");
+assert(intentFromUserText("raiding the pantry") === "cook", "‘raiding the pantry’ → cook");
+
+group("3e. intentFromUserText — COOK: false positives that must NOT match");
+
+// "make a reservation" matches the DINE arm (reservation is a strong
+// dine signal). Cook regex correctly skips it — reservation isn't a
+// food noun.
+assert(intentFromUserText("let's make a reservation") === "dine", "‘make a reservation’ → dine (NOT cook)");
+assert(intentFromUserText("make sure to order pasta") === "order", "‘make sure to order pasta’ → order, NOT cook");
+assert(intentFromUserText("let's make a plan") === null, "‘make a plan’ → null");
+assert(intentFromUserText("make it work") === null, "‘make it work’ → null");
+assert(intentFromUserText("let's fix the car") === null, "‘fix the car’ → null (no food noun)");
+assert(intentFromUserText("throw together a slide deck") === null, "‘throw together a slide deck’ → null");
+
+group("3f. intentFromUserText — DINE: expanded phrasing");
+
+assert(intentFromUserText("let's go out for dinner") === "dine", "‘go out for dinner’ → dine");
+assert(intentFromUserText("heading out tonight") === "dine", "‘heading out’ → dine");
+assert(intentFromUserText("reserve a table for two") === "dine", "‘reserve a table’ → dine");
+assert(intentFromUserText("book a spot at Toscano") === "dine", "‘book a spot’ → dine");
+assert(intentFromUserText("table for 4 at 8pm") === "dine", "‘table for 4’ → dine");
+assert(intentFromUserText("make a reservation at Olive") === "dine", "‘make a reservation’ → dine");
+assert(intentFromUserText("out for drinks tonight") === "dine", "‘out for drinks’ → dine");
+assert(intentFromUserText("date night plans") === "dine", "‘date night’ → dine");
+assert(intentFromUserText("night out with friends") === "dine", "‘night out’ → dine");
+assert(intentFromUserText("restaurant tonight maybe") === "dine", "‘restaurant tonight’ → dine");
+// New patterns: meal-word + "at <place>", bare "table" with time/loc,
+// and "(find|get|grab) a table" — these are the colloquial phrasings
+// that were falling through before. User reported intent not switching
+// when they said "dinner at Olive Bar tonight".
+assert(intentFromUserText("dinner at Olive Bar tonight") === "dine", "‘dinner at Olive Bar’ → dine");
+assert(intentFromUserText("lunch at Toscano tomorrow") === "dine", "‘lunch at Toscano’ → dine");
+assert(intentFromUserText("brunch at the Den on Sunday") === "dine", "‘brunch at <place>’ → dine");
+assert(intentFromUserText("drinks at the Black Pearl") === "dine", "‘drinks at <place>’ → dine");
+assert(intentFromUserText("get me a table at Toscano") === "dine", "‘get me a table’ → dine");
+assert(intentFromUserText("find us a table tonight") === "dine", "‘find us a table’ → dine");
+assert(intentFromUserText("grab a table for four") === "dine", "‘grab a table’ → dine");
+assert(intentFromUserText("table at Olive tonight") === "dine", "‘table at Olive tonight’ → dine");
+// False-positive guard: "for dinner I want to cook" is still cook,
+// because "at" doesn't follow the meal word.
+assert(intentFromUserText("for dinner I want to cook pasta") === "cook", "‘for dinner I want to cook’ → cook (no false dine match)");
+
+group("3g. intentFromUserText — ORDER: expanded food vocab + lead-ins");
+
+assert(intentFromUserText("order pasta") === "order", "‘order pasta’ → order");
+assert(intentFromUserText("let's order a sandwich") === "order", "‘order a sandwich’ → order");
+assert(intentFromUserText("how about we order pizza") === "order", "‘how about we order pizza’ → order");
+assert(intentFromUserText("should we order chinese") === "order", "‘should we order chinese’ → order");
+assert(intentFromUserText("order me some biryani") === "order", "‘order me some biryani’ → order");
+assert(intentFromUserText("order something") === "order", "‘order something’ → order");
+assert(intentFromUserText("order us dinner") === "order", "‘order us dinner’ → order");
+assert(intentFromUserText("grab some food from outside") === "order", "‘grab some food’ → order");
+assert(intentFromUserText("can we order ramen") === "order", "‘order ramen’ → order");
+assert(intentFromUserText("let's order paneer tikka") === "order", "‘order paneer tikka’ → order");
+
+group("3h. intentFromUserText — ambiguous / unrelated → null");
+
+assert(intentFromUserText("I love pasta") === null, "‘I love pasta’ → null (no verb)");
+assert(intentFromUserText("pasta is nice") === null, "‘pasta is nice’ → null");
+assert(intentFromUserText("hello") === null, "greeting → null");
+assert(intentFromUserText("yes go ahead") === null, "confirmation → null");
+
 // And the reducer wires it through input_audio_transcription.completed
 {
   let s = INITIAL_LIVE_STATE;
