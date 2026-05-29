@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Aura } from "@/components/voice/Aura";
 import { TranscriptStream } from "@/components/voice/TranscriptStream";
 import { AgentCaption } from "@/components/voice/AgentCaption";
@@ -23,7 +23,11 @@ import { useAgentManifest } from "@/lib/agent/use-agent-manifest";
 import type { IntentMode } from "@/lib/agent/manifest";
 import { blurPercentToPx } from "@/lib/design/tokens";
 
-const MAX_CARDS = 3; // voice contract — max 3 spoken-list items, mirrored here for parity.
+// No card cap on the panel — the agent's spoken summary still names at
+// most 3, but the panel renders the full set and scrolls. An Instamart
+// basket of 5+ items is normal; capping the visible list at 3 made
+// later additions (milk, the 4th ingredient) silently disappear off
+// the bottom of the slice. The mask + scroll already handle overflow.
 
 export default function VoicePage() {
   const provider = useAgentManifest("demo");
@@ -62,7 +66,23 @@ export default function VoicePage() {
         : provider.manifest.aura;
 
   const manifest = provider.manifest;
-  const cards = (manifest.cards ?? []).slice(0, MAX_CARDS);
+  const cards = manifest.cards ?? [];
+
+  // Auto-scroll the cards column to the bottom whenever its length
+  // grows. Without this, freshly added items (e.g. milk being the 4th
+  // ingredient) land below the viewport and the user assumes the agent
+  // never added them. Bottom-aligned because new cards append there in
+  // upsertCards / syncCartCards.
+  const cardsScrollRef = useRef<HTMLDivElement | null>(null);
+  const prevCardsLenRef = useRef(0);
+  useEffect(() => {
+    const el = cardsScrollRef.current;
+    if (!el) return;
+    if (cards.length > prevCardsLenRef.current) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    }
+    prevCardsLenRef.current = cards.length;
+  }, [cards.length]);
 
   return (
     <main
@@ -149,9 +169,17 @@ export default function VoicePage() {
           />
         </div>
 
-        {/* Context cards (left of aura) */}
+        {/* Context cards (left of aura).
+            Scrollable column with symmetric top + bottom fade-out masks.
+            The mask makes both edges dissolve into the dark scene background
+            instead of hard-cutting — matches the natural fade-at-viewport-edge
+            the bottom card already had from page overflow. Scrollbar is
+            visually hidden (className=hide-scrollbar in globals) so the
+            void-into-void aesthetic stays clean. */}
         {cards.length > 0 && (
           <div
+            ref={cardsScrollRef}
+            className="hide-scrollbar"
             style={{
               position: "absolute",
               left: "6%",
@@ -161,12 +189,19 @@ export default function VoicePage() {
               flexDirection: "column",
               gap: 14,
               maxHeight: "80vh",
+              overflowY: "auto",
+              paddingTop: 40,
+              paddingBottom: 40,
+              WebkitMaskImage:
+                "linear-gradient(to bottom, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)",
+              maskImage:
+                "linear-gradient(to bottom, transparent 0, #000 40px, #000 calc(100% - 40px), transparent 100%)",
             }}
           >
             {cards.map((card, i) => (
               <div
                 key={cardKey(card, i)}
-                style={{ animationDelay: `${i * 0.15}s` }}
+                style={{ animationDelay: `${i * 0.15}s`, flexShrink: 0 }}
               >
                 {card.kind === "restaurant" && (
                   <RestaurantCard data={card} index={i} total={cards.length} />

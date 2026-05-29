@@ -52,6 +52,13 @@ export interface DeliveryCardData {
 export type CardData = RestaurantCardData | InstamartCardData | DeliveryCardData;
 
 export interface NegotiatorSlot {
+  /**
+   * Stable id from the source slot (DineoutSlot.slotId). Used as the
+   * React key in the Negotiator panel. Two slots can otherwise share
+   * the same {time, label} pair (e.g., 12:00 LUNCH on different days)
+   * and would collide on a composite key.
+   */
+  id?: string;
   /** e.g. "8:00 PM" */
   time: string;
   /** Short uppercase label. e.g. "EARLIER" / "REQUESTED" / "+45 MIN" / "SIMILAR VIBE" */
@@ -65,6 +72,14 @@ export interface NegotiatorSlot {
 export interface NegotiatorData {
   /** e.g. "8:00 PM at Olive Bistro is full." */
   headline: string;
+  /**
+   * Spoken-form date the panel is showing slots for: "today",
+   * "tomorrow", "Sat, May 30". Lets the UI render the requested date
+   * next to the headline so the user can verify the agent dialled the
+   * right day — without this the panel could silently show next-Monday
+   * slots while the user thought they asked about tonight.
+   */
+  dateLabel?: string;
   restaurantStrikethrough?: string;
   slots: NegotiatorSlot[];
   focusedSlotIndex: number;

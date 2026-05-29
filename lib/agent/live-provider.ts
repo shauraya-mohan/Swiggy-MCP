@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { AgentManifest } from "@/lib/agent/manifest";
+import type { AgentManifest, IntentMode } from "@/lib/agent/manifest";
 import { IDLE_MANIFEST } from "@/lib/agent/manifest";
 import {
   reduceEvent,
@@ -14,6 +14,14 @@ import {
 } from "@/lib/agent/realtime-events";
 import { openRealtimeSession, type SessionHandle } from "@/lib/agent/realtime-client";
 import { executeToolCall } from "@/lib/agent/tool-bridge";
+import { cardFromToolResult, syncCartCards, upsertCards } from "@/lib/agent/tool-card-mapper";
+import {
+  armForInterrupt,
+  armForListening,
+  armForResponse,
+} from "@/lib/agent/turn-control";
+import { parseToolHandle } from "@/lib/mcp/router";
+import type { SwiggyResponse } from "@/lib/mock/types";
 
 /**
  * useLiveProvider — drives the real OpenAI Realtime WebRTC voice loop.
@@ -27,10 +35,9 @@ import { executeToolCall } from "@/lib/agent/tool-bridge";
  *   4. Function-call events trigger executeToolCall against /api/tools/*,
  *      whose result is wrapped in a function_call_output item and pushed
  *      back; response.create asks the model to continue.
- *
- * What's NOT wired yet (Step 8):
- *   - Surfacing tool results as Cards / Negotiator panels in the manifest.
- *     The voice loop is whole; the UI just shows the orb + transcripts.
+ *   5. Tool results pass through cardFromToolResult (lib/agent/tool-card-mapper)
+ *      to patch the manifest's cards / negotiator / confirm fields, so the
+ *      panel beside the orb reflects whatever the agent just fetched.
  */
 export interface LiveProviderState {
   manifest: AgentManifest;
@@ -74,6 +81,15 @@ export function useLiveProvider(): LiveProviderState {
   const sessionRef = useRef<SessionHandle | null>(null);
   const sessionStateRef = useRef<LiveSessionState>(INITIAL_LIVE_STATE);
   const startingRef = useRef<boolean>(false);
+  // Tracks the previously-seen intent so we can clear the visual panel
+  // on cook ↔ order ↔ dine transitions. Starts as "idle" — the very
+  // first intent change (idle → something) doesn't trigger a clear.
+  const prevIntentRef = useRef<IntentMode>("idle");
+  // Mutation receipt — ConfirmCard auto-dismisses after this fires.
+  // setTimeout id is held in a ref so back-to-back mutations cancel the
+  // previous timer (each new confirm resets the dismissal countdown).
+  const confirmDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const CONFIRM_DISMISS_MS = 2800;
   // After the user taps Interrupt we send `response.cancel` but tail-end
   // events for that response (deltas already on the wire, the final
   // response.done with status=cancelled) keep arriving for ~200–500 ms.
@@ -143,6 +159,37 @@ export function useLiveProvider(): LiveProviderState {
     return () => cancelAnimationFrame(raf);
   }, [inboundAnalyser]);
 
+  // Intent-change → clear visual panel.
+  //
+  // Cards/negotiator/confirm persist across the user's turns within a
+  // single intent (cooking a meal can take 6+ search calls and 3+
+  // confirmations — see the pasta scenario). But when the user pivots
+  // between modes (cook → order, order → dine, …) the panel context
+  // from the previous mode is stale and confusing — restaurant cards
+  // shouldn't sit alongside grocery cards.
+  //
+  // Only fires on transitions between two distinct non-idle values:
+  //   - idle → cook is a fresh start (nothing to clear).
+  //   - cook → cook is unchanged (no effect).
+  //   - cook → order is a real pivot (clear).
+  useEffect(() => {
+    const cur = manifest.intent;
+    const prev = prevIntentRef.current;
+    if (prev !== cur && prev !== "idle" && cur !== "idle") {
+      sessionStateRef.current = {
+        ...sessionStateRef.current,
+        manifest: {
+          ...sessionStateRef.current.manifest,
+          cards: undefined,
+          negotiator: undefined,
+          confirm: undefined,
+        },
+      };
+      setManifest({ ...sessionStateRef.current.manifest });
+    }
+    prevIntentRef.current = cur;
+  }, [manifest.intent]);
+
   const applyEvent = useCallback((event: RealtimeServerEvent) => {
     // Reducer is meant to be pure; if it ever throws (malformed event from
     // upstream, schema drift), don't take down the session — log it and keep
@@ -157,16 +204,15 @@ export function useLiveProvider(): LiveProviderState {
       // Drop tail-end events from a cancelled response. Errors and session
       // lifecycle events still go through; only response.* state churn is
       // suppressed.
+      //
+      // Gate lifetime: cancellingRef stays TRUE from interruptResponse()
+      // until the user's next stopListening() (i.e., they tap Send to
+      // commit a new turn). We deliberately do NOT release it on the
+      // cancelled-ack — see commit message for the flicker fix. The gate
+      // also forces agentAudible=false in the polling loop below.
       if (cancellingRef.current && typeof event.type === "string" && event.type.startsWith("response.")) {
         if (typeof window !== "undefined") {
           console.debug("[realtime] (cancelled — dropped)", event.type);
-        }
-        // A response.done with status=cancelled is the OpenAI ack that the
-        // cancellation took effect. Once we've seen it, we can stop
-        // suppressing — but we still don't *apply* it (no state change).
-        const done = event as { type: string; response?: { status?: string } };
-        if (event.type === "response.done" && done.response?.status === "cancelled") {
-          cancellingRef.current = false;
         }
         return;
       }
@@ -179,12 +225,108 @@ export function useLiveProvider(): LiveProviderState {
     }
   }, []);
 
+  // Manifest mutator — used by both push-to-talk turn control and the
+  // tool-bridge to merge per-tool card patches. Lives high in the file
+  // so handleToolCall (below) and startListening (further down) can
+  // close over it without TDZ surprises.
+  const patchManifest = useCallback((patch: Partial<AgentManifest>) => {
+    sessionStateRef.current = {
+      ...sessionStateRef.current,
+      manifest: { ...sessionStateRef.current.manifest, ...patch },
+    };
+    setManifest({ ...sessionStateRef.current.manifest });
+  }, []);
+
   const handleToolCall = useCallback(
     async (call: { call_id: string; name: string; arguments: string }) => {
       const result = await executeToolCall({
         handle: call.name,
         argsJson: call.arguments,
       });
+
+      // ---- Visual surface: tool result → manifest patch ----
+      //
+      // Two combine modes the mapper can choose between:
+      //
+      //   "replace" — fresh tool wins. Restaurant searches and delivery
+      //     tracking use this: the user is choosing one restaurant, or
+      //     tracking one order; the prior set is stale.
+      //
+      //   "upsert" — merge by card.id. Instamart shopping uses this so
+      //     the basket accumulates across multiple searches. Without
+      //     this, searching milk after adding garlic would erase the
+      //     garlic card mid-flow.
+      //
+      // Tools without a visual mapping return null — leave the panel alone.
+      // Empty-result mappings also return null (don't wipe context just
+      // because a follow-up search came up dry). The mapper is wrapped in
+      // try/catch so a malformed envelope from a real MCP server can't
+      // crash the voice loop.
+      try {
+        const parsed = parseToolHandle(call.name);
+        if (parsed) {
+          const patch = cardFromToolResult(
+            { server: parsed.server, tool: parsed.tool },
+            result.body as SwiggyResponse<unknown>,
+          );
+          if (patch) {
+            const update: Partial<AgentManifest> = {};
+            if (patch.cards !== undefined) {
+              const mode = patch.cardsMode ?? "replace";
+              const prev = sessionStateRef.current.manifest.cards;
+              if (mode === "sync-cart") {
+                update.cards = syncCartCards(prev, patch.cards);
+              } else if (mode === "upsert") {
+                update.cards = upsertCards(prev, patch.cards);
+              } else {
+                update.cards = patch.cards;
+              }
+            }
+            if (patch.negotiator !== undefined) update.negotiator = patch.negotiator;
+            if (patch.confirm !== undefined) update.confirm = patch.confirm;
+            if (Object.keys(update).length > 0) {
+              patchManifest(update);
+            }
+            // ConfirmCard auto-dismiss. Each new confirm cancels the
+            // previous timer and starts fresh — so rapid-fire mutations
+            // (agent adding 4 ingredients in a row) all get their full
+            // ~3s of screen time before the panel returns to clean.
+            if (patch.confirm !== undefined) {
+              if (confirmDismissTimerRef.current) {
+                clearTimeout(confirmDismissTimerRef.current);
+              }
+              confirmDismissTimerRef.current = setTimeout(() => {
+                sessionStateRef.current = {
+                  ...sessionStateRef.current,
+                  manifest: { ...sessionStateRef.current.manifest, confirm: undefined },
+                };
+                setManifest({ ...sessionStateRef.current.manifest });
+                confirmDismissTimerRef.current = null;
+              }, CONFIRM_DISMISS_MS);
+            }
+            // Debug breadcrumb so we can verify in DevTools that the
+            // mapper is firing and how the panel changed. One line per
+            // tool result, easy to scan. Safe in prod (no PII).
+            if (typeof window !== "undefined") {
+              const summary = (update.cards ?? []).map((c) => {
+                if (c.kind === "instamart") {
+                  return `im:${c.id}${c.state === "added" ? "*" : ""}`;
+                }
+                if (c.kind === "restaurant") return `res:${c.id}`;
+                return c.kind;
+              });
+              console.debug(
+                `[live][cards] ${call.name} mode=${patch.cardsMode ?? "replace"} → ${summary.length} cards [${summary.join(", ")}]`,
+              );
+            }
+          } else if (typeof window !== "undefined") {
+            console.debug(`[live][cards] ${call.name} → null patch (no UI change)`);
+          }
+        }
+      } catch (e) {
+        const message = e instanceof Error ? e.message : "Mapper error";
+        console.warn("[live] cardFromToolResult failed for", call.name, "—", message);
+      }
 
       // Wrap the result in a function_call_output and push it back, then ask
       // the model to continue. The model decides whether to speak, call
@@ -199,7 +341,7 @@ export function useLiveProvider(): LiveProviderState {
       });
       sessionRef.current?.send({ type: "response.create" });
     },
-    [],
+    [patchManifest],
   );
 
   const startSession = useCallback(async () => {
@@ -289,6 +431,11 @@ export function useLiveProvider(): LiveProviderState {
     sessionStateRef.current = INITIAL_LIVE_STATE;
     cancellingRef.current = false;
     agentAudibleRef.current = false;
+    prevIntentRef.current = "idle";
+    if (confirmDismissTimerRef.current) {
+      clearTimeout(confirmDismissTimerRef.current);
+      confirmDismissTimerRef.current = null;
+    }
     setManifest(IDLE_MANIFEST);
     setInboundAnalyser(null);
     setOutboundAnalyser(null);
@@ -305,35 +452,41 @@ export function useLiveProvider(): LiveProviderState {
   //      into the mic (laptop speakers → built-in mic on the same machine).
   //   3. The model auto-responding before the user has finished thinking.
 
-  const patchManifest = useCallback((patch: Partial<AgentManifest>) => {
-    sessionStateRef.current = {
-      ...sessionStateRef.current,
-      manifest: { ...sessionStateRef.current.manifest, ...patch },
-    };
-    setManifest({ ...sessionStateRef.current.manifest });
-  }, []);
-
   const startListening = useCallback(() => {
     const handle = sessionRef.current;
     if (!handle) return;
-    // Starting a new turn clears any lingering cancellation state so the
-    // next response.* events flow normally — and re-enables playback in
-    // case the previous turn was interrupted (which muted the <audio>).
-    cancellingRef.current = false;
-    handle.setPlaybackMuted(false);
-    handle.setMicEnabled(true);
-    handle.send({ type: "input_audio_buffer.clear" });
-    // Reset transcripts for the new utterance so the bubble starts empty.
-    patchManifest({ aura: "listening", userSays: "", agentSays: undefined });
+    // Wire-level: enable mic + clear input buffer. We deliberately do
+    // NOT touch the inbound audio pipeline here — if the previous turn
+    // was interrupted, the audio element stays muted and the receiver
+    // track stays disabled through this listening phase. armForResponse()
+    // (in stopListening) re-arms the pipeline.
+    //
+    // cancellingRef.current also stays TRUE through this phase — drops
+    // any tail-end response.* events still arriving from the cancelled
+    // response.
+    armForListening(handle);
+    // Keep cards / negotiator / confirm intact across the user's turn —
+    // a shopping or ordering flow spans many turns (search, confirm,
+    // search more, confirm, …) and wiping the visual context on every
+    // tap-to-talk erases the basket the user is building. The visual
+    // panel only clears on intent change (cook ↔ order ↔ dine, handled
+    // by the effect below) or on session end.
+    patchManifest({
+      aura: "listening",
+      userSays: "",
+      agentSays: undefined,
+    });
     setIsListening(true);
   }, [patchManifest]);
 
   const stopListening = useCallback(() => {
     const handle = sessionRef.current;
     if (!handle) return;
-    handle.setMicEnabled(false);
-    handle.send({ type: "input_audio_buffer.commit" });
-    handle.send({ type: "response.create" });
+    // Re-arm receiver + playback BEFORE releasing the cancellation gate,
+    // so the very first response.* event from the new turn flows through
+    // an open pipeline. armForResponse also sends commit + response.create.
+    armForResponse(handle);
+    cancellingRef.current = false;
     patchManifest({ aura: "thinking" });
     setIsListening(false);
   }, [patchManifest]);
@@ -341,15 +494,19 @@ export function useLiveProvider(): LiveProviderState {
   const interruptResponse = useCallback(() => {
     const handle = sessionRef.current;
     if (!handle) return;
-    // Mute the audio element FIRST so the user hears silence immediately —
-    // before the network round-trip for response.cancel. The cancellation
-    // flag prevents any in-flight transcript deltas from re-inflating the
-    // caption while we wait for the official cancelled-response.done.
+    // See lib/agent/turn-control.ts for the rationale on the call order.
+    // Two-line summary:
+    //   - Receiver disabled + audio element muted = source silenced AND
+    //     audio element keeps draining the jitter buffer in real time,
+    //     so there's no backlog of cancelled audio sitting around.
+    //   - cancellingRef gates the reducer & polling loop until the next
+    //     stopListening — preventing any tail-end response.* events from
+    //     mutating the manifest or flickering the orb.
     cancellingRef.current = true;
-    handle.setPlaybackMuted(true);
-    handle.send({ type: "response.cancel" });
-    // Hard-clear audible too — don't wait one frame for the analyser
-    // poll to notice cancellingRef. The button needs to flip instantly.
+    armForInterrupt(handle);
+    // Hard-clear audible too — don't wait one polling-loop frame for the
+    // analyser to notice the receiver went quiet. The button needs to
+    // flip instantly.
     agentAudibleRef.current = false;
     setAgentAudible(false);
     // Drop the caption immediately too — visual ack of the interrupt.

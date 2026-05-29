@@ -8,9 +8,18 @@
  * Returns a handle exposing:
  *   - send(event)   to push client events through the `oai-events` data channel
  *   - close()       to tear down audio, peer connection, and AudioContexts
- *   - inboundAnalyser / outboundAnalyser  Web Audio analysers tapping the
- *                                         agent's output and the user's mic
- *                                         (used by the Aura for real freq).
+ *   - setMicEnabled / setPlaybackMuted / setReceiverAudioEnabled — turn-control
+ *     primitives used by lib/agent/turn-control.ts (push-to-talk + interrupt).
+ *   - onInboundAnalyserReady / onOutboundAnalyserReady — Web Audio analysers
+ *     tapping the agent's output and the user's mic (used by the Aura).
+ *
+ * Audio architecture note: inbound playback uses a hidden <audio> element
+ * (so we don't fight Chrome's AudioContext autoplay restrictions across the
+ * SDP await). setPlaybackMuted only toggles `audioEl.muted` — never
+ * pause() or srcObject=null — so the element keeps draining the WebRTC
+ * jitter buffer continuously, and an interrupt-then-resume can't replay
+ * a backlog of pre-interrupt audio. The Web Audio AnalyserNode taps the
+ * same MediaStream separately for Aura visualisation.
  *
  * Reference flow:
  *   https://developers.openai.com/api/docs/guides/realtime-webrtc
@@ -53,21 +62,59 @@ export interface SessionHandle {
   /** Current mic enable state (mirrors the track flag). */
   isMicEnabled: () => boolean;
   /**
-   * Mute / unmute the inbound audio element. Used by `interruptResponse()`
-   * to cut the agent's voice the *instant* the user taps Interrupt — even
-   * before OpenAI's `response.cancel` round-trip completes and the audio
-   * track stops emitting. Re-enabled on the next user turn.
+   * Toggle the inbound audio output between silent and audible.
+   * Implemented as `audioEl.muted = ...` ONLY — no pause(), no
+   * srcObject=null. The audio element keeps consuming the MediaStream
+   * at the device sample rate regardless of mute state, which is what
+   * drains the WebRTC jitter buffer continuously. There is NEVER a
+   * backlog of pre-interrupt audio to play out when we un-mute,
+   * because nothing was ever paused.
    */
   setPlaybackMuted: (muted: boolean) => void;
+  /**
+   * Enable / disable the inbound WebRTC audio receiver track at the
+   * source. Belt-and-braces alongside setPlaybackMuted: while disabled
+   * the track outputs silence regardless of what's landing in the jitter
+   * buffer, so the AnalyserNode (used by the Aura's "agent is audible"
+   * detector) sees zero energy and the orb stays calm on interrupt.
+   */
+  setReceiverAudioEnabled: (enabled: boolean) => void;
 }
 
 export async function openRealtimeSession(opts: OpenSessionOptions): Promise<SessionHandle> {
   const pc = new RTCPeerConnection();
 
   // ---- Inbound audio (agent → browser speakers + AnalyserNode) ----
+  //
+  // Architecture: a hidden HTMLAudioElement handles audible playback,
+  // and a separate Web Audio graph taps the same MediaStream for the
+  // Aura's frequency visualisation.
+  //
+  //     <audio srcObject=stream>                  (audible playback;
+  //                                                browser handles autoplay)
+  //     source(stream) → AnalyserNode             (visualisation only;
+  //                                                not connected to destination)
+  //
+  // CRITICAL invariant for interrupt → resume not replaying old audio:
+  //
+  //   setPlaybackMuted only toggles `audioEl.muted`. It NEVER calls
+  //   `.pause()` and NEVER detaches `srcObject`. An audio element
+  //   playing a MediaStream consumes samples at the device sample rate
+  //   regardless of the `muted` flag — `muted` only silences output.
+  //
+  //   This means the WebRTC jitter buffer is ALWAYS being drained, even
+  //   during an interrupt window. There's no backlog of "tail audio"
+  //   from a cancelled response sitting around to play out when the
+  //   user resumes their next turn. The audio element drained it all
+  //   to silence as it arrived.
+  //
+  //   Why not Web Audio for playback too? Because Chrome refuses to
+  //   start an AudioContext outside a user gesture, and by the time
+  //   openRealtimeSession runs we've already awaited /api/voice/session
+  //   (gesture expired). The <audio> element doesn't have this
+  //   restriction — `autoplay=true` just works for MediaStream sources.
   const audioEl = document.createElement("audio");
   audioEl.autoplay = true;
-  // Critical for iOS Safari: must be in the DOM to play.
   audioEl.style.display = "none";
   document.body.appendChild(audioEl);
 
@@ -78,9 +125,7 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     const [stream] = event.streams;
     if (!stream) return;
     audioEl.srcObject = stream;
-
     try {
-      // Lazy-init AudioContext so it ties to the user gesture that started the session.
       inboundAudioCtx = new (window.AudioContext ||
         (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
       const source = inboundAudioCtx.createMediaStreamSource(stream);
@@ -88,12 +133,13 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
       inboundAnalyser.fftSize = 64; // → 32 freq bins; matches the Aura's bin count.
       inboundAnalyser.smoothingTimeConstant = 0.5;
       source.connect(inboundAnalyser);
-      // NOTE: we deliberately do NOT connect analyser → destination.
-      // The <audio> element handles playback; routing through the analyser
-      // would double-play (and on some browsers silence one of the paths).
+      // NOTE: analyser is NOT connected to destination — the <audio>
+      // element handles audible playback. Connecting both paths would
+      // double-emit on some browsers and silence one on others.
       opts.onInboundAnalyserReady?.(inboundAnalyser);
     } catch (e) {
-      // Analyser failure should NOT kill the call — Aura just falls back to sin-driven freq.
+      // Analyser failure should NOT kill the call — the user can still
+      // hear the agent; the Aura just falls back to sin-driven freq.
       const err = e instanceof Error ? e : new Error(String(e));
       console.warn("[realtime] inbound analyser failed:", err.message);
     }
@@ -213,25 +259,24 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     return tracks.length > 0 && tracks.every((t) => t.enabled);
   };
 
-  const setPlaybackMuted = (muted: boolean) => {
-    // .muted is the immediate kill-switch: silences the audio element
-    // without tearing down the WebRTC track. Pairing it with .pause() drops
-    // anything the browser had buffered locally, so when we re-enable on
-    // the next turn we don't hear a "tail" of the previous response.
-    audioEl.muted = muted;
-    if (muted) {
-      try {
-        audioEl.pause();
-      } catch {
-        // ignore
+  const setReceiverAudioEnabled = (enabled: boolean) => {
+    for (const receiver of pc.getReceivers()) {
+      const track = receiver.track;
+      if (track && track.kind === "audio") {
+        track.enabled = enabled;
       }
-    } else {
-      // Resume playback for the next response. play() returns a Promise
-      // that may reject if autoplay policy intervenes — we swallow it
-      // because the user gesture that started the session already
-      // unlocked autoplay for this document.
-      audioEl.play().catch(() => {});
     }
+  };
+
+  const setPlaybackMuted = (muted: boolean) => {
+    // muted-only. No pause(), no srcObject=null. The audio element keeps
+    // consuming the MediaStream at the device sample rate either way —
+    // `muted` just silences the OUTPUT. That continuous consumption is
+    // what drains the WebRTC jitter buffer in real time, so when we
+    // unmute on the next turn we hear "live now" and never a backlog
+    // of pre-interrupt audio. See the comment block at the top of
+    // openRealtimeSession for the deeper rationale.
+    audioEl.muted = muted;
   };
 
   const close = async () => {
@@ -264,5 +309,12 @@ export async function openRealtimeSession(opts: OpenSessionOptions): Promise<Ses
     inboundAnalyser = null;
   };
 
-  return { send, close, setMicEnabled, isMicEnabled, setPlaybackMuted };
+  return {
+    send,
+    close,
+    setMicEnabled,
+    isMicEnabled,
+    setPlaybackMuted,
+    setReceiverAudioEnabled,
+  };
 }

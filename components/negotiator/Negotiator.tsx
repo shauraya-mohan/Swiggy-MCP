@@ -71,6 +71,21 @@ export function Negotiator({ data }: { data: NegotiatorData }) {
         ) : (
           data.headline
         )}
+        {data.dateLabel && (
+          <span
+            className="font-mono"
+            style={{
+              marginLeft: 10,
+              fontSize: 10,
+              letterSpacing: "0.14em",
+              color: "var(--fg-mute)",
+              textTransform: "uppercase",
+              verticalAlign: "middle",
+            }}
+          >
+            · {data.dateLabel}
+          </span>
+        )}
       </div>
       <div
         style={{
@@ -99,9 +114,16 @@ export function Negotiator({ data }: { data: NegotiatorData }) {
         <div style={{ display: "flex", justifyContent: "space-between", position: "relative" }}>
           {data.slots.map((slot, i) => {
             const isFocused = i === focused;
+            // Prefer the stable slot id from the data layer. Falls back
+            // to a composite that includes the array index so duplicate
+            // (time, label) pairs don't collide — see the 12:00 LUNCH ×3
+            // bug we fixed where the mapper now dedupes upstream, but
+            // we keep this defensive in case a different data source
+            // produces ties.
+            const key = slot.id ?? `${i}-${slot.time}-${slot.label}`;
             return (
               <div
-                key={`${slot.time}-${slot.label}`}
+                key={key}
                 onClick={() => slot.available && setFocused(i)}
                 className={clsx(
                   "slot",
