@@ -15,6 +15,7 @@ import {
 import { openRealtimeSession, type SessionHandle } from "@/lib/agent/realtime-client";
 import { executeToolCall } from "@/lib/agent/tool-bridge";
 import { cardFromToolResult, syncCartCards, upsertCards } from "@/lib/agent/tool-card-mapper";
+import { buildPendingMutation, isMutationTool } from "@/lib/agent/pending-mutation";
 import {
   armForInterrupt,
   armForListening,
@@ -63,6 +64,14 @@ export interface LiveProviderState {
    * before a live session is open.
    */
   sendUserText: (text: string) => void;
+  /**
+   * Resolve the pending-mutation gate (book_table, update_cart,
+   * checkout, place_food_order). The sheet's Confirm/Cancel buttons
+   * call this with the manifest's `pendingMutation.callId` and the
+   * user's choice. Released gates fall through to executeToolCall;
+   * declined gates return USER_DECLINED to the model.
+   */
+  confirmMutation: (callId: string, accepted: boolean) => void;
   inboundAnalyser: AnalyserNode | null;
   outboundAnalyser: AnalyserNode | null;
   liveError: string | null;
@@ -102,6 +111,14 @@ export function useLiveProvider(): LiveProviderState {
   // previous timer (each new confirm resets the dismissal countdown).
   const confirmDismissTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const CONFIRM_DISMISS_MS = 2800;
+  // In-flight consent gates — keyed by OpenAI function_call.call_id.
+  // When a mutation tool is called, we open a sheet and stash a
+  // resolver here; the sheet's Confirm/Cancel buttons hit
+  // confirmMutation(callId, accepted) which finds and invokes the
+  // resolver. Multiple in flight is theoretically possible (model
+  // could fire two book_tables in one response) — we key per-call so
+  // none get orphaned, even though the UI only shows one at a time.
+  const pendingConsentsRef = useRef<Map<string, (accepted: boolean) => void>>(new Map());
   // After the user taps Interrupt we send `response.cancel` but tail-end
   // events for that response (deltas already on the wire, the final
   // response.done with status=cancelled) keep arriving for ~200–500 ms.
@@ -251,6 +268,70 @@ export function useLiveProvider(): LiveProviderState {
 
   const handleToolCall = useCallback(
     async (call: { call_id: string; name: string; arguments: string }) => {
+      // ---- Hard safety gate for mutating tools ----
+      //
+      // Mutations (book_table, update_cart, checkout, place_food_order)
+      // are intercepted here. We surface a ConfirmationSheet via the
+      // manifest's `pendingMutation` slot, then await the user's tap
+      // (Promise resolves from confirmMutation(callId, accepted)).
+      //
+      //   accepted === true  → fall through to executeToolCall as normal
+      //   accepted === false → skip execution; return USER_DECLINED to
+      //                        the model so it can verbally acknowledge
+      //                        ("Okay, cancelled — what else?") without
+      //                        ever firing the underlying tool.
+      //
+      // The gate is best-effort: if buildPendingMutation returns null
+      // (e.g., a future mutation tool we forgot to add), we let the call
+      // through with a console warning rather than blocking the agent.
+      if (isMutationTool(call.name)) {
+        const preview = buildPendingMutation(call, sessionStateRef.current.manifest);
+        if (preview) {
+          // Open the sheet.
+          patchManifest({ pendingMutation: preview });
+
+          const accepted = await new Promise<boolean>((resolve) => {
+            pendingConsentsRef.current.set(call.call_id, resolve);
+          });
+
+          // Sheet closes either way — clear regardless of outcome.
+          pendingConsentsRef.current.delete(call.call_id);
+          patchManifest({ pendingMutation: undefined });
+
+          if (!accepted) {
+            // Return a structured decline. The model treats this like
+            // any other tool error result and reads it back verbally.
+            const declineBody = {
+              ok: false,
+              error: { code: "USER_DECLINED", message: "User declined the action on the confirmation sheet." },
+            };
+            sessionRef.current?.send({
+              type: "conversation.item.create",
+              item: {
+                type: "function_call_output",
+                call_id: call.call_id,
+                output: JSON.stringify(declineBody),
+              },
+            });
+            sessionRef.current?.send({ type: "response.create" });
+            if (typeof window !== "undefined") {
+              console.debug(`[live][gate] ${call.name} → USER_DECLINED (call ${call.call_id})`);
+            }
+            return;
+          }
+
+          if (typeof window !== "undefined") {
+            console.debug(`[live][gate] ${call.name} → CONFIRMED (call ${call.call_id})`);
+          }
+        } else if (typeof window !== "undefined") {
+          // Marked mutation but no preview builder — fall through, but
+          // surface so we can add the builder. Should never hit unless
+          // someone added a new mutation tool without updating the
+          // pending-mutation switch.
+          console.warn(`[live][gate] ${call.name} is a mutation tool but has no preview builder`);
+        }
+      }
+
       const result = await executeToolCall({
         handle: call.name,
         argsJson: call.arguments,
@@ -526,6 +607,30 @@ export function useLiveProvider(): LiveProviderState {
   }, [patchManifest]);
 
   /**
+   * Resolve a pending mutation gate. Called by the ConfirmationSheet's
+   * Confirm / Cancel buttons. Looks up the resolver stashed in
+   * `pendingConsentsRef` by call_id and invokes it — which unblocks
+   * the await in `handleToolCall` above.
+   *
+   * Idempotent: if the gate was already resolved (rapid double-tap on
+   * Confirm, or sheet re-rendered with a stale callId), the second
+   * call is a silent no-op rather than throwing.
+   */
+  const confirmMutation = useCallback((callId: string, accepted: boolean) => {
+    const resolve = pendingConsentsRef.current.get(callId);
+    if (!resolve) {
+      if (typeof window !== "undefined") {
+        console.debug(`[live][gate] confirmMutation(${callId}, ${accepted}) — no resolver (already resolved?)`);
+      }
+      return;
+    }
+    resolve(accepted);
+    // Note: we DON'T delete from the map here. handleToolCall does that
+    // after awaiting + clearing the manifest slot, in one place, to keep
+    // the lifecycle obvious.
+  }, []);
+
+  /**
    * Inject a synthetic user message into the conversation, as if the
    * user had just spoken it. This is the bridge that lets the UI dispatch
    * card taps through the same verbal contract the voice flow already uses:
@@ -583,6 +688,7 @@ export function useLiveProvider(): LiveProviderState {
     stopListening,
     interruptResponse,
     sendUserText,
+    confirmMutation,
     inboundAnalyser,
     outboundAnalyser,
     liveError,

@@ -10,6 +10,7 @@ import { RestaurantCard } from "@/components/cards/RestaurantCard";
 import { InstamartCard } from "@/components/cards/InstamartCard";
 import { DeliveryCard } from "@/components/cards/DeliveryCard";
 import { ConfirmCard } from "@/components/cards/ConfirmCard";
+import { ConfirmationSheet } from "@/components/cards/ConfirmationSheet";
 import { Negotiator } from "@/components/negotiator/Negotiator";
 import { BrandHeader } from "@/components/chrome/BrandHeader";
 import { IntentIndicator } from "@/components/chrome/IntentIndicator";
@@ -273,18 +274,44 @@ export default function VoicePage() {
           </div>
         )}
 
-        {/* Confirm card (bottom centre, above pills) */}
-        {manifest.confirm && (
+        {/* Pre-mutation gate (bottom centre, above pills). Mutually
+            exclusive with the receipt ConfirmCard — the gate appears
+            FIRST (model paused on tool call), user resolves it, tool
+            actually runs, then the receipt appears. While the sheet
+            is up, the receipt slot is suppressed. */}
+        {manifest.pendingMutation ? (
           <div
             style={{
               position: "absolute",
               bottom: 120,
               left: "50%",
               transform: "translateX(-50%)",
+              zIndex: 10,
             }}
           >
-            <ConfirmCard data={manifest.confirm} />
+            <ConfirmationSheet
+              data={manifest.pendingMutation}
+              onConfirm={() =>
+                provider.confirmMutation?.(manifest.pendingMutation!.callId, true)
+              }
+              onCancel={() =>
+                provider.confirmMutation?.(manifest.pendingMutation!.callId, false)
+              }
+            />
           </div>
+        ) : (
+          manifest.confirm && (
+            <div
+              style={{
+                position: "absolute",
+                bottom: 120,
+                left: "50%",
+                transform: "translateX(-50%)",
+              }}
+            >
+              <ConfirmCard data={manifest.confirm} />
+            </div>
+          )
         )}
 
         {/* Voice control + intent quick-jump strip — stacked at the bottom. */}

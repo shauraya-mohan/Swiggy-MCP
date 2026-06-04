@@ -91,6 +91,64 @@ export interface ConfirmData {
   subtitle: string;
 }
 
+/**
+ * The MCP tools that commit money or a reservation and therefore
+ * require a hard UI consent gate before they fire. Kept in sync with
+ * `lib/mcp/manifest.ts`'s `isMutation: true` flag (which is also what
+ * the LIVE_MUTATIONS kill-switch gates against the real Swiggy MCP).
+ *
+ * Deliberately excludes `im__update_cart` — cart adds are reversible
+ * (you can call update_cart again with quantity:0), so they keep the
+ * verbal-confirm pattern from system prompt rule #6 instead of getting
+ * a sheet. A sheet on every "+ milk" / "+ eggs" would feel like an
+ * interrogation during normal shopping.
+ *
+ * String-literal union so the builder (`buildPendingMutation`) can
+ * pattern-match exhaustively and the compiler catches unhandled cases.
+ */
+export type MutationToolName =
+  | "dineout__book_table"
+  | "im__checkout"
+  | "food__place_food_order";
+
+/**
+ * A mutation the model has requested but which has NOT yet fired. The
+ * ConfirmationSheet renders this and waits for the user to tap
+ * Confirm (releases the gate, tool actually runs) or Cancel (returns
+ * USER_DECLINED to the model so it can verbally acknowledge).
+ *
+ * Lives alongside `confirm` (the AFTER-the-fact receipt). The two are
+ * mutually exclusive in time — a sheet appears, user confirms, tool
+ * fires, sheet vanishes, receipt appears.
+ */
+export interface PendingMutation {
+  /**
+   * OpenAI function_call.call_id — the gate uses this as the resolver
+   * key. Must round-trip back into `confirmMutation(callId, accepted)`
+   * so the right Promise resolves (two mutations could be queued in
+   * theory; in practice we only ever show one at a time but keying
+   * defensively costs nothing).
+   */
+  callId: string;
+  /** Which mutation tool is gated. Drives the headline copy + icon. */
+  toolName: MutationToolName;
+  /** Sheet headline, e.g. "Confirm Booking" / "Confirm Order". */
+  title: string;
+  /** Single sub-line under the title, e.g. "Toscano · Indiranagar". */
+  subtitle?: string;
+  /**
+   * Bullet rows of the mutation specifics, rendered in monospace.
+   * e.g. ["Tonight, 7:30 PM", "Table for 2"] for book_table or
+   *      ["Amul Milk · 1L", "Onions · 1kg", "Subtotal ₹196"] for checkout.
+   * Order matters — most-important first, totals last.
+   */
+  rows: string[];
+  /** Label on the Confirm button. e.g. "Book Table" / "Place Order". */
+  primaryLabel: string;
+  /** Optional warning copy shown above the buttons, in caution colour. */
+  cautionary?: string;
+}
+
 export interface AgentManifest {
   intent: IntentMode;
   aura: AuraState;
@@ -99,6 +157,13 @@ export interface AgentManifest {
   cards?: CardData[];
   negotiator?: NegotiatorData;
   confirm?: ConfirmData;
+  /**
+   * BEFORE-the-fact mutation gate. When set, the ConfirmationSheet is
+   * up and the model is paused waiting on the gated tool's result.
+   * Cleared (back to undefined) the moment the user resolves it
+   * either way. See PendingMutation docs.
+   */
+  pendingMutation?: PendingMutation;
 }
 
 export type ProviderMode = "demo" | "live";
@@ -151,6 +216,15 @@ export interface AgentManifestProvider {
    * priority); also no-op in demo mode.
    */
   sendUserText?: (text: string) => void;
+  /**
+   * Live mode only — resolve a pending mutation gate. Called by the
+   * ConfirmationSheet's Confirm / Cancel buttons. `accepted === true`
+   * releases the gate and the tool actually fires; `false` returns a
+   * USER_DECLINED result to the model so it can verbally acknowledge
+   * and ask what to do next. The callId comes from
+   * `manifest.pendingMutation.callId`.
+   */
+  confirmMutation?: (callId: string, accepted: boolean) => void;
   /**
    * Live mode only — true while the inbound audio analyser sees real
    * energy from the agent's voice. Use this (not aura alone) to gate

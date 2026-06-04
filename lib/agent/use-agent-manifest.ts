@@ -79,6 +79,11 @@ export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManif
     // check `provider.sendUserText !== undefined` to decide whether
     // to render in interactive mode.
     sendUserText: mode === "live" ? live.sendUserText : undefined,
+    // Live-only: demo has no real tool calls to gate, so no consent
+    // resolver is exposed. Card components / ConfirmationSheet check
+    // `provider.confirmMutation !== undefined` to decide whether to
+    // render an interactive sheet vs a pure visual preview.
+    confirmMutation: mode === "live" ? live.confirmMutation : undefined,
     agentAudible: mode === "live" ? live.agentAudible : false,
   };
 }
