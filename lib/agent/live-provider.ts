@@ -19,6 +19,7 @@ import {
   armForInterrupt,
   armForListening,
   armForResponse,
+  dispatchUserText,
 } from "@/lib/agent/turn-control";
 import { parseToolHandle } from "@/lib/mcp/router";
 import type { SwiggyResponse } from "@/lib/mock/types";
@@ -51,6 +52,17 @@ export interface LiveProviderState {
   stopListening: () => void;
   /** Cancel an in-progress response (interrupt the agent mid-speech). */
   interruptResponse: () => void;
+  /**
+   * Inject a synthetic user message into the conversation, as if the
+   * user had just spoken it. Used by card taps (RestaurantCard,
+   * InstamartCard, Negotiator slot CONFIRM) so the UI surfaces and
+   * the voice surface stay on a single dispatch channel. The agent
+   * still observes the verbal-confirm contract before any mutation.
+   *
+   * No-ops while the user is mid-utterance (mic takes priority) or
+   * before a live session is open.
+   */
+  sendUserText: (text: string) => void;
   inboundAnalyser: AnalyserNode | null;
   outboundAnalyser: AnalyserNode | null;
   liveError: string | null;
@@ -513,6 +525,56 @@ export function useLiveProvider(): LiveProviderState {
     patchManifest({ aura: "idle", agentSays: undefined });
   }, [patchManifest]);
 
+  /**
+   * Inject a synthetic user message into the conversation, as if the
+   * user had just spoken it. This is the bridge that lets the UI dispatch
+   * card taps through the same verbal contract the voice flow already uses:
+   *
+   *   user taps "8 PM" on the Negotiator
+   *     → sendUserText("Book the 8 PM slot at Toscano")
+   *     → agent does the verbal readback then calls dineout__book_table
+   *
+   * The agent stays in the loop — it still confirms verbally before any
+   * mutation per system prompt rule #6 — so a misclick is never silently
+   * destructive. The tap is just the user "saying" the request.
+   *
+   * No-ops if:
+   *   - we're not in a live session (e.g., demo mode), or
+   *   - the user is currently mid-utterance (tap is ignored; their
+   *     spoken turn takes priority). The button should be disabled in
+   *     this state, but defend in depth.
+   */
+  const sendUserText = useCallback(
+    (text: string) => {
+      const handle = sessionRef.current;
+      if (!handle) return;
+      if (!text || !text.trim()) return;
+      if (isListening) return; // user is talking — don't talk over them
+
+      // If an agent response is mid-flight, cancel it first. Otherwise
+      // the new response.create races the old one and the model gets
+      // confused. This mirrors what a real interrupt would do.
+      if (agentAudibleRef.current || sessionStateRef.current.manifest.aura === "speaking") {
+        cancellingRef.current = true;
+        armForInterrupt(handle);
+        agentAudibleRef.current = false;
+        setAgentAudible(false);
+      }
+
+      // Inject the synthetic message + ask the agent to respond. The
+      // wire-level dance (open pipeline → conversation.item.create →
+      // response.create) lives in lib/agent/turn-control.ts so it can
+      // be unit-tested without React.
+      const sentText = dispatchUserText(handle, text);
+
+      // Visual ack: the transcript stream shows what the user "said" so
+      // a tap reads as an intentional turn, not a silent click.
+      cancellingRef.current = false;
+      patchManifest({ aura: "thinking", userSays: sentText, agentSays: undefined });
+    },
+    [isListening, patchManifest, setAgentAudible],
+  );
+
   return {
     manifest,
     startSession,
@@ -520,6 +582,7 @@ export function useLiveProvider(): LiveProviderState {
     startListening,
     stopListening,
     interruptResponse,
+    sendUserText,
     inboundAnalyser,
     outboundAnalyser,
     liveError,

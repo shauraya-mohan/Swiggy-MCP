@@ -14,7 +14,20 @@ import { Icon } from "@/lib/design/icons";
  * arrives the parent re-mounts us via a `key` derived from the step id so
  * the user's local interactions don't leak across script steps.
  */
-export function Negotiator({ data }: { data: NegotiatorData }) {
+export function Negotiator({
+  data,
+  onConfirmSlot,
+}: {
+  data: NegotiatorData;
+  /**
+   * Optional confirm handler. In live mode the parent passes a
+   * callback that sends the agent a synthetic "Book the 7:30 PM
+   * slot" message (the agent then does the verbal readback +
+   * book_table dance). Without this prop, the CONFIRM button is
+   * a pure visual ack (demo mode).
+   */
+  onConfirmSlot?: (slot: { time: string; label: string }) => void;
+}) {
   const [focused, setFocused] = useState(data.focusedSlotIndex);
   const [confirmed, setConfirmed] = useState(data.state === "confirmed");
 
@@ -245,7 +258,16 @@ export function Negotiator({ data }: { data: NegotiatorData }) {
         </button>
         <button
           className="btn-ghost active"
-          onClick={() => setConfirmed(true)}
+          onClick={() => {
+            setConfirmed(true);
+            // Hand off to the agent. The booking still goes through the
+            // verbal-confirm contract, so this tap is the user "saying"
+            // "book this one" — agent will read back and ask for a
+            // final yes before firing dineout__book_table.
+            if (focusedSlot && focusedSlot.available) {
+              onConfirmSlot?.({ time: focusedSlot.time, label: focusedSlot.label });
+            }
+          }}
           style={
             confirmed
               ? { color: "var(--accent-soft)", display: "flex", alignItems: "center", gap: 4 }

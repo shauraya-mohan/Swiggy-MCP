@@ -74,6 +74,11 @@ export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManif
     startListening: live.startListening,
     stopListening: live.stopListening,
     interruptResponse: live.interruptResponse,
+    // Live-only: demo cards stay click-to-toggle (no real session to
+    // talk to). Gate at the hook layer so card components can just
+    // check `provider.sendUserText !== undefined` to decide whether
+    // to render in interactive mode.
+    sendUserText: mode === "live" ? live.sendUserText : undefined,
     agentAudible: mode === "live" ? live.agentAudible : false,
   };
 }

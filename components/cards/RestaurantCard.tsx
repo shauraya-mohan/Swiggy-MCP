@@ -10,14 +10,25 @@ export function RestaurantCard({
   data,
   index = 0,
   total = 1,
+  onTap,
 }: {
   data: RestaurantCardData;
   index?: number;
   total?: number;
+  /**
+   * Optional tap handler. In live mode the parent wires this to
+   * `sendUserText("Tell me about <restaurant>")`. In demo mode
+   * `onTap` is undefined and the card falls back to the visual
+   * "ordered" toggle below — useful for screenshots and the demo
+   * script where there's no real agent listening.
+   */
+  onTap?: () => void;
 }) {
   // Driven by manifest `state` if provided, otherwise local "tap to toggle".
   const [localOrdered, setLocalOrdered] = useState(data.state === "ordered");
   const ordered = data.state ? data.state === "ordered" : localOrdered;
+
+  const handleClick = onTap ?? (() => setLocalOrdered((o) => !o));
 
   return (
     <Card
@@ -27,7 +38,7 @@ export function RestaurantCard({
         "0"
       )}`}
       selected={ordered}
-      onClick={() => setLocalOrdered((o) => !o)}
+      onClick={handleClick}
       trailing={
         <div
           className="font-mono"

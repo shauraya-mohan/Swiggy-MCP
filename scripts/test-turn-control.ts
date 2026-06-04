@@ -12,6 +12,7 @@ import {
   armForInterrupt,
   armForListening,
   armForResponse,
+  dispatchUserText,
   type TurnControlHandle,
 } from "../lib/agent/turn-control";
 
@@ -346,6 +347,254 @@ group("5. interrupt → interrupt (rapid taps)");
   assert(
     !calls.some((c) => c === "setPlaybackMuted(false)"),
     "no spurious un-mute between rapid interrupts",
+  );
+}
+
+// =========================================================================
+//  6. dispatchUserText — card-tap dispatch path
+// =========================================================================
+//
+// This is the bridge that lets card taps act like spoken turns:
+//   user taps "8 PM" on the Negotiator
+//     → dispatchUserText("Book the 8 PM slot")
+//     → agent reads back + asks "confirm?" → calls book_table
+//
+// Wire-level invariants (the bugs we're guarding against):
+//   - MUST send conversation.item.create with role=user, type=input_text,
+//     so the model treats it identically to an audio-transcribed turn.
+//   - MUST re-open the audio pipeline (receiver + playback) BEFORE
+//     response.create — otherwise the first audio delta plays through
+//     a muted element if a recent interrupt left things muted.
+//   - MUST NOT touch the mic or send input_audio_buffer.commit — there
+//     is no audio buffer in this path, and committing an empty buffer
+//     triggers a Realtime API error.
+//   - MUST trim whitespace; the model treats stray newlines as separate
+//     punctuation tokens.
+
+group("6. dispatchUserText (card-tap dispatch)");
+
+interface RichSpy {
+  handle: TurnControlHandle;
+  /** Method-call log, like the simple spy. */
+  calls: string[];
+  /** All raw `send(event)` payloads in order, with full shape. */
+  sent: Array<Record<string, unknown>>;
+}
+
+function makeRichSpy(): RichSpy {
+  const calls: string[] = [];
+  const sent: Array<Record<string, unknown>> = [];
+  const handle: TurnControlHandle = {
+    send: (event) => {
+      calls.push(`send(${event.type})`);
+      sent.push(event as Record<string, unknown>);
+    },
+    setMicEnabled: (on) => {
+      calls.push(`setMicEnabled(${on})`);
+    },
+    setPlaybackMuted: (muted) => {
+      calls.push(`setPlaybackMuted(${muted})`);
+    },
+    setReceiverAudioEnabled: (enabled) => {
+      calls.push(`setReceiverAudioEnabled(${enabled})`);
+    },
+  };
+  return { handle, calls, sent };
+}
+
+{
+  const { handle, calls, sent } = makeRichSpy();
+  const returned = dispatchUserText(handle, "Book the 8 PM slot at Toscano");
+
+  // Exact sequence: item.create → receiver on → playback on → response.create
+  assert(calls.length === 4, "issues exactly 4 calls", `got ${calls.length}`);
+
+  assert(
+    calls[0] === "send(conversation.item.create)",
+    "FIRST call appends the user message",
+    `got: ${calls[0]}`,
+  );
+
+  assert(
+    calls[1] === "setReceiverAudioEnabled(true)",
+    "SECOND call re-enables the receiver",
+    `got: ${calls[1]}`,
+  );
+
+  assert(
+    calls[2] === "setPlaybackMuted(false)",
+    "THIRD call un-mutes playback",
+    `got: ${calls[2]}`,
+  );
+
+  assert(
+    calls[3] === "send(response.create)",
+    "FOURTH call asks for a response",
+    `got: ${calls[3]}`,
+  );
+
+  // ---- conversation.item.create shape (the model contract) ----
+
+  const itemCreate = sent[0] as {
+    type: string;
+    item: {
+      type: string;
+      role: string;
+      content: Array<{ type: string; text: string }>;
+    };
+  };
+
+  assert(itemCreate.type === "conversation.item.create", "envelope type is correct");
+  assert(itemCreate.item.type === "message", "item.type is 'message'");
+  assert(
+    itemCreate.item.role === "user",
+    "item.role is 'user' (so model treats it as a real turn)",
+    `got: ${itemCreate.item.role}`,
+  );
+  assert(
+    Array.isArray(itemCreate.item.content) && itemCreate.item.content.length === 1,
+    "item.content is a single-entry array",
+  );
+  assert(
+    itemCreate.item.content[0]?.type === "input_text",
+    "content[0].type is 'input_text' (NOT 'text' which is for assistant turns)",
+    `got: ${itemCreate.item.content[0]?.type}`,
+  );
+  assert(
+    itemCreate.item.content[0]?.text === "Book the 8 PM slot at Toscano",
+    "content[0].text matches the input",
+  );
+
+  // ---- ordering invariants ----
+
+  assert(
+    calls.indexOf("setPlaybackMuted(false)") <
+      calls.indexOf("send(response.create)"),
+    "playback un-muted BEFORE response.create (prevents silent first delta)",
+  );
+
+  assert(
+    calls.indexOf("setReceiverAudioEnabled(true)") <
+      calls.indexOf("send(response.create)"),
+    "receiver re-enabled BEFORE response.create",
+  );
+
+  assert(
+    calls.indexOf("send(conversation.item.create)") <
+      calls.indexOf("send(response.create)"),
+    "user message appended BEFORE response.create (otherwise model responds to nothing)",
+  );
+
+  // ---- mustn't-do invariants ----
+  //
+  // dispatchUserText is a text path. If it ever touches the mic or
+  // commits the audio buffer, the Realtime API throws "buffer too
+  // small" — that bug bit us once already in development.
+
+  assert(
+    !calls.some((c) => c.startsWith("setMicEnabled")),
+    "NEVER touches the mic (text path, no audio involved)",
+  );
+
+  assert(
+    !calls.some((c) => c === "send(input_audio_buffer.commit)"),
+    "NEVER commits the input audio buffer (empty commit = API error)",
+  );
+
+  assert(
+    !calls.some((c) => c === "send(input_audio_buffer.clear)"),
+    "NEVER clears the input audio buffer (no audio to clear)",
+  );
+
+  // ---- return value contract ----
+
+  assert(returned === "Book the 8 PM slot at Toscano", "returns the sent text");
+}
+
+// Edge case: whitespace trimming.
+
+{
+  const { handle, sent } = makeRichSpy();
+  const returned = dispatchUserText(handle, "  Add tomatoes\n\n  ");
+
+  const itemCreate = sent[0] as {
+    item: { content: Array<{ text: string }> };
+  };
+  assert(
+    itemCreate.item.content[0]?.text === "Add tomatoes",
+    "trims leading + trailing whitespace from the sent text",
+    `got: ${JSON.stringify(itemCreate.item.content[0]?.text)}`,
+  );
+  assert(returned === "Add tomatoes", "returned text is the trimmed version");
+}
+
+// Idempotence under back-to-back dispatch — a rapid double-tap shouldn't
+// produce anything broken at the wire level. (live-provider gates the
+// second tap while the first response is in flight, but turn-control
+// itself should still be safe.)
+
+{
+  const { handle, calls } = makeRichSpy();
+  dispatchUserText(handle, "first");
+  dispatchUserText(handle, "second");
+
+  assert(calls.length === 8, "two dispatches = 8 calls", `got ${calls.length}`);
+
+  const itemCreates = calls.filter((c) => c === "send(conversation.item.create)");
+  const responseCreates = calls.filter((c) => c === "send(response.create)");
+  assert(itemCreates.length === 2, "each dispatch sends exactly one item.create");
+  assert(responseCreates.length === 2, "each dispatch sends exactly one response.create");
+}
+
+// =========================================================================
+//  7. interrupt → dispatchUserText (the tap-during-speech scenario)
+// =========================================================================
+//
+// User scenario: agent is reading out 4 restaurants. User taps the 2nd
+// card. Live-provider should detect "agent is speaking" and call
+// armForInterrupt first, then dispatchUserText. The composite wire
+// trace should leave the audio pipeline OPEN at the end (so the agent's
+// new reply plays) — even though armForInterrupt closed it midway.
+
+group("7. armForInterrupt → dispatchUserText (tap during agent speech)");
+
+{
+  const { handle, calls } = makeRichSpy();
+
+  armForInterrupt(handle); // simulates: agent was speaking, we cancel
+  dispatchUserText(handle, "Tell me about Toscano");
+
+  // 3 (interrupt) + 4 (dispatch) = 7 calls.
+  assert(calls.length === 7, "interrupt + dispatch = 7 calls", `got ${calls.length}`);
+
+  // The critical invariant: the LAST playback/receiver state must be ON,
+  // not OFF — because the agent's new reply is about to play.
+  const lastPlaybackIdx = calls.lastIndexOf("setPlaybackMuted(false)");
+  const lastMuteIdx = calls.lastIndexOf("setPlaybackMuted(true)");
+  assert(
+    lastPlaybackIdx > lastMuteIdx,
+    "final playback state is UN-muted (agent reply will be audible)",
+  );
+
+  const lastReceiverOnIdx = calls.lastIndexOf("setReceiverAudioEnabled(true)");
+  const lastReceiverOffIdx = calls.lastIndexOf("setReceiverAudioEnabled(false)");
+  assert(
+    lastReceiverOnIdx > lastReceiverOffIdx,
+    "final receiver state is ENABLED (analyser sees real energy again)",
+  );
+
+  // response.cancel must precede the new conversation.item.create —
+  // otherwise the model is mid-response when we hand it a new message.
+  assert(
+    calls.indexOf("send(response.cancel)") <
+      calls.indexOf("send(conversation.item.create)"),
+    "response.cancel BEFORE the new user message",
+  );
+
+  // And the new response.create comes last.
+  assert(
+    calls.lastIndexOf("send(response.create)") === calls.length - 1,
+    "response.create is the very last wire event",
   );
 }
 

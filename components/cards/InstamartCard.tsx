@@ -6,17 +6,31 @@ import { Icon } from "@/lib/design/icons";
 import { Card } from "./Card";
 import { FoodGlyph, pickInstamartGlyph } from "./FoodGlyph";
 
-export function InstamartCard({ data }: { data: InstamartCardData }) {
+export function InstamartCard({
+  data,
+  onTap,
+}: {
+  data: InstamartCardData;
+  /**
+   * Optional tap handler. In live mode the parent wires this to
+   * `sendUserText("Add <product> to my cart")` or "Remove it" if the
+   * card is already in the "added" state. In demo mode tap falls
+   * back to the visual local toggle.
+   */
+  onTap?: () => void;
+}) {
   const [localAdded, setLocalAdded] = useState(data.state === "added");
   const added = data.state ? data.state === "added" : localAdded;
   const hue = data.imageHue ?? 22;
+
+  const handleClick = onTap ?? (() => setLocalAdded((a) => !a));
 
   return (
     <Card
       width={250}
       label="INSTAMART · INGREDIENT"
       selected={added}
-      onClick={() => setLocalAdded((a) => !a)}
+      onClick={handleClick}
     >
       <div style={{ position: "relative", marginBottom: 12 }}>
         <div

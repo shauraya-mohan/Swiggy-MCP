@@ -95,3 +95,45 @@ export function armForResponse(handle: TurnControlHandle): void {
   handle.send({ type: "input_audio_buffer.commit" });
   handle.send({ type: "response.create" });
 }
+
+/**
+ * Inject a synthetic user message into the conversation (card-tap
+ * dispatch path). Equivalent to the user speaking the same words
+ * out loud, minus the audio commit dance.
+ *
+ * Order matters:
+ *   1. (caller decides) — if agent is mid-speech, run armForInterrupt
+ *      first. Don't do it here; the caller has the freshest knowledge
+ *      of whether playback is currently audible.
+ *   2. conversation.item.create — append the user's "utterance" as a
+ *      typed message. Role is user, content type input_text. The model
+ *      treats this identically to a finished transcribed audio turn.
+ *   3. setReceiverAudioEnabled + setPlaybackMuted = true — re-open the
+ *      inbound pipeline so the agent's spoken reply plays through an
+ *      un-muted audio element from byte one. Symmetric with what
+ *      armForResponse does for audio turns.
+ *   4. response.create — ask OpenAI to generate the agent's reply.
+ *
+ * We deliberately skip `input_audio_buffer.commit` and `clear` —
+ * there's no audio buffer involved in this code path. Calling commit
+ * with an empty buffer triggers a "buffer too small" error from the
+ * Realtime API.
+ *
+ * Returns the literal text that was sent, so the caller can echo it
+ * into the manifest's `userSays` for visual ack.
+ */
+export function dispatchUserText(handle: TurnControlHandle, text: string): string {
+  const trimmed = text.trim();
+  handle.send({
+    type: "conversation.item.create",
+    item: {
+      type: "message",
+      role: "user",
+      content: [{ type: "input_text", text: trimmed }],
+    },
+  });
+  handle.setReceiverAudioEnabled(true);
+  handle.setPlaybackMuted(false);
+  handle.send({ type: "response.create" });
+  return trimmed;
+}

@@ -204,9 +204,40 @@ export default function VoicePage() {
                 style={{ animationDelay: `${i * 0.15}s`, flexShrink: 0 }}
               >
                 {card.kind === "restaurant" && (
-                  <RestaurantCard data={card} index={i} total={cards.length} />
+                  <RestaurantCard
+                    data={card}
+                    index={i}
+                    total={cards.length}
+                    // Tap a restaurant → tell the agent to focus on it.
+                    // The agent will pull up the menu / agent pick and
+                    // ask the user what they want to order.
+                    onTap={
+                      provider.sendUserText
+                        ? () =>
+                            provider.sendUserText!(
+                              `Let's go with ${card.name} — what would you recommend?`,
+                            )
+                        : undefined
+                    }
+                  />
                 )}
-                {card.kind === "instamart" && <InstamartCard data={card} />}
+                {card.kind === "instamart" && (
+                  <InstamartCard
+                    data={card}
+                    // Tap toggles intent: add if not added, remove if already added.
+                    // Agent will read back the change before firing im__update_cart.
+                    onTap={
+                      provider.sendUserText
+                        ? () =>
+                            provider.sendUserText!(
+                              card.state === "added"
+                                ? `Actually, remove the ${card.name} from my cart.`
+                                : `Add ${card.name} (${card.pack}) to my cart.`,
+                            )
+                        : undefined
+                    }
+                  />
+                )}
                 {card.kind === "delivery" && <DeliveryCard data={card} />}
               </div>
             ))}
@@ -227,6 +258,17 @@ export default function VoicePage() {
             <Negotiator
               key={`neg-${manifest.negotiator.headline}-${manifest.negotiator.focusedSlotIndex}`}
               data={manifest.negotiator}
+              // CONFIRM button → hands off to the agent, which then
+              // does the verbal readback ("Booking Toscano, 7:30 PM,
+              // table for two — confirm?") before firing book_table.
+              onConfirmSlot={
+                provider.sendUserText
+                  ? ({ time }) =>
+                      provider.sendUserText!(
+                        `Book the ${time} slot — that works for me.`,
+                      )
+                  : undefined
+              }
             />
           </div>
         )}

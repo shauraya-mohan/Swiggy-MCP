@@ -141,6 +141,17 @@ export interface AgentManifestProvider {
   /** Live mode only — cancel an in-progress agent response. */
   interruptResponse?: () => void;
   /**
+   * Live mode only — inject a synthetic user message into the
+   * conversation, as if the user had just spoken it. The agent
+   * still observes the verbal-confirm contract before any mutation,
+   * so a misclick is never silently destructive — it just sets the
+   * agent up to ask for confirmation.
+   *
+   * No-op while the user is mid-utterance (the live mic takes
+   * priority); also no-op in demo mode.
+   */
+  sendUserText?: (text: string) => void;
+  /**
    * Live mode only — true while the inbound audio analyser sees real
    * energy from the agent's voice. Use this (not aura alone) to gate
    * "is the agent currently audible right now?" UI affordances like
