@@ -246,8 +246,17 @@ export default function VoicePage() {
         )}
 
         {/* Negotiator (right of aura) — keyed so a new manifest re-mounts and
-            re-seeds the locally-tracked focused/confirmed state. */}
-        {manifest.negotiator && (
+            re-seeds the locally-tracked focused/confirmed state.
+
+            Hidden whenever a ConfirmationSheet is up. The Negotiator is for
+            disambiguation ("here are slot options"); once the user has
+            committed to a specific time the sheet is the active surface
+            and the option grid becomes visual noise. The prompt's PATH A
+            (direct book on a specific time) means the Negotiator should
+            never have rendered in the first place, but this is the
+            belt-and-braces guard for cases where the agent already
+            populated it. */}
+        {manifest.negotiator && !manifest.pendingMutation && (
           <div
             style={{
               position: "absolute",

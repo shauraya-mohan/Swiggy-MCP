@@ -119,7 +119,12 @@ const DINEOUT_TESTS: TestCase[] = [
       slotId: "slot_TEST",
       guestCount: 4,
       date: "2026-05-15",
-      time: "20:00",
+      // 12:30 is deterministically available for din_001 on 2026-05-15
+      // under the current RNG seed (restaurantId + dateStr). If the
+      // seed logic ever changes, this test will start failing — that's
+      // the signal to update both this value and the per-time test
+      // group in scripts/test-tool-mapper.ts in lockstep.
+      time: "12:30",
     },
   },
   // get_booking_status wired dynamically once book_table returns an id.

@@ -318,7 +318,15 @@ export async function create_cart(args: CreateCartArgs): Promise<SwiggyResponse<
 
 export interface BookTableArgs {
   restaurantId: string;
-  slotId: string;
+  /**
+   * Optional. If the agent already called `get_available_slots` it can
+   * pass the slotId from the panel for traceability. The mock doesn't
+   * require it — time + date + restaurantId is enough to resolve the
+   * slot deterministically (same RNG seed as get_available_slots).
+   * This is what enables the "direct book without listing first" flow
+   * when the user named a specific time.
+   */
+  slotId?: string;
   guestCount: number;
   date?: string;
   time?: string;
@@ -327,7 +335,6 @@ export interface BookTableArgs {
 export async function book_table(args: BookTableArgs): Promise<SwiggyResponse<Booking>> {
   await jitterDelay(150, 300);
   if (!args.restaurantId) return err("restaurantId is required");
-  if (!args.slotId) return err("slotId is required");
   if (!args.guestCount) return err("guestCount is required");
 
   const restaurant = seed.dineoutRestaurants.find((r) => r.id === args.restaurantId);
@@ -337,12 +344,47 @@ export async function book_table(args: BookTableArgs): Promise<SwiggyResponse<Bo
     return err(`${restaurant.name} is fully booked at this time.`, "SLOT_UNAVAILABLE");
   }
 
+  // ---- Specific-slot availability check ----
+  //
+  // When the agent goes "direct book" (user named a specific time, no
+  // get_available_slots panel first), we still need to honour the
+  // restaurant's actual schedule. Regenerate the slot list from the
+  // same seed (restaurantId+date) and look up by time — that gives a
+  // deterministic answer to "is 7 PM free?" without requiring the
+  // agent to call get_available_slots first.
+  //
+  // If the slot is taken, return SLOT_UNAVAILABLE with the rationale
+  // the agent can read back ("7 PM isn't free — here are nearby
+  // times"). The prompt tells the agent to then fall back to
+  // get_available_slots and show the user alternates.
+  const date = args.date ?? new Date().toISOString().slice(0, 10);
+  if (args.time) {
+    const slotsForDay = generateSlots(restaurant.id, date);
+    const slot = slotsForDay.find((s) => s.time === args.time);
+    if (!slot) {
+      // Time outside service hours (e.g. 4 PM dead zone, or 11 PM).
+      return err(
+        `${restaurant.name} doesn't serve at ${args.time}. Lunch is 12:00–15:30, dinner is 18:00–22:30.`,
+        "SLOT_UNAVAILABLE",
+      );
+    }
+    if (!slot.available) {
+      return err(
+        `The ${args.time} slot at ${restaurant.name} is taken.`,
+        "SLOT_UNAVAILABLE",
+      );
+    }
+  }
+  // Else: agent didn't pass time. Treat as a legacy slotId-only call;
+  // we'll trust the slotId implicitly (can't reverse-lookup time from
+  // a fresh-per-call slotId anyway).
+
   const booking: Booking = {
     bookingId: genId("bk"),
     restaurantId: restaurant.id,
     restaurantName: restaurant.name,
-    slotId: args.slotId,
-    date: args.date ?? new Date().toISOString().slice(0, 10),
+    slotId: args.slotId ?? genId("slot"),
+    date,
     time: args.time ?? "20:00",
     guestCount: args.guestCount,
     status: "CONFIRMED",

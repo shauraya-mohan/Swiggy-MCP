@@ -121,7 +121,10 @@ async function main() {
       slotId: "slot_TEST",
       guestCount: 2,
       date: "2026-05-15",
-      time: "20:00",
+      // See test-mocks.ts: 12:30 is the deterministic-available slot
+      // for din_001 / 2026-05-15. Stays in lockstep with that test
+      // file. If the RNG seed logic changes, both update together.
+      time: "12:30",
     };
 
     const mockBlocked = await callTool(

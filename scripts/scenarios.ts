@@ -569,7 +569,10 @@ async function negotiatorIdempotency() {
       slotId: "slot_TEST",
       guestCount: 4,
       date: "2026-05-15",
-      time: "20:00",
+      // 12:30 is deterministic-available for din_001 / 2026-05-15
+      // under the generateSlots RNG seed. Kept in lockstep with the
+      // pin in scripts/test-mocks.ts and scripts/test-router.ts.
+      time: "12:30",
     }),
     "book_table",
   );

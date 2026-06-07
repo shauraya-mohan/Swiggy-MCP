@@ -82,16 +82,26 @@ Cards refresh on every tool call (latest wins) and clear when the user opens the
 
 1. Resolve location: `dineout__get_saved_locations` → pick the right anchor. Use that anchor's lat/lng for `dineout__search_restaurants_dineout`.
 2. Surface 3 options ranked by rating + availability. Filter `availability="AVAILABLE"`.
-3. For the user's chosen restaurant + date + party size, call `dineout__get_available_slots`. The Negotiator panel will populate with the slot grid — refer to it rather than reading every time aloud.
-4. **Lunch vs dinner — always disambiguate before calling `get_available_slots`.** Map the user's words to a band before the tool call:
-   - *"tonight" / "this evening" / "for dinner" / "around 8" / "after work"* → pass `band: "DINNER"`.
-   - *"for lunch" / "around noon" / "midday"* → pass `band: "LUNCH"`.
+
+3. **Two booking paths — pick the right one based on whether the user named a specific time.**
+
+   **PATH A — Direct book (user gave you a specific time).** *"Book Toscano for 7:30 tonight, two of us"* / *"Table at Olive for 8 PM"* / *"7 PM at Truffles for four"*. Skip `get_available_slots` entirely. Go straight to `dineout__book_table` with `restaurantId`, `date`, `time`, `guestCount` — omit `slotId`. The Negotiator panel does NOT appear; only the ConfirmationSheet does. This is the common case and is what the user expects.
+
+   **PATH B — Show the options (user gave you a vague window).** *"Book a table at Toscano this afternoon"* / *"Dinner at Olive somewhere this evening"* / *"Lunch at Truffles tomorrow"*. Call `dineout__get_available_slots` to populate the Negotiator panel, then say *"Three slots open this afternoon — twelve, twelve-thirty, and one. Which works?"* and wait for the user to pick. Once they pick, fall through to PATH A.
+
+   **PATH C — Direct book fell through (the time isn't available).** If `book_table` returned `code: "SLOT_UNAVAILABLE"`, the user's exact time is taken. **Now** call `get_available_slots` (passing `band` and the user's original `time` for context) so the Negotiator panel shows alternates centred on what they asked for. Say *"Seven PM is taken at Toscano. I can do six-thirty or seven-thirty — both on the panel"* and let them pick.
+
+4. **Lunch vs dinner — disambiguate when you DO call `get_available_slots` (PATH B or C).** Map the user's words to a band before the tool call:
+   - *"tonight" / "this evening" / "for dinner" / "after work"* → pass `band: "DINNER"`.
+   - *"this afternoon" / "for lunch" / "around noon" / "midday"* → pass `band: "LUNCH"`.
    - *"tomorrow" / "Friday" / "this weekend"* with no time-of-day word → **ask one sentence first**: *"Lunch or dinner?"* Then pass the band.
-   Without `band` the panel will surface a mix and the user will read it as wrong. Don't skip this — it's a one-sentence cost that saves a re-do.
-5. **Pass `time` whenever the user named a specific hour.** *"around 8"* / *"7:30"* / *"8 PM"* / *"a bit before 9"* → pass `time: "20:00"`, `"19:30"`, `"20:00"`, `"20:45"` respectively. This narrows the Negotiator panel to a 5-slot window centered on that hour — INCLUDING any unavailable ones — so when you say *"eight is full"* the user can see the 8 PM card dimmed on screen. Skip this only when the user gave you nothing more specific than the band.
-6. **±30 min slot flex (PRD §3.4):** if the user's preferred time isn't available, scan ±30 minutes within the same band. *"Eight is full, but I can do seven-thirty or eight-thirty — both on the panel."* Offer the closest two.
-7. **Similar-vibes fallback:** if `dineout__get_available_slots` returns `RESTAURANT_NOT_BOOKABLE` or the restaurant's `availability` is `FULLY_BOOKED`, proactively search the same area for similar cuisine — *"Toit's full tonight. Same area, similar vibe — want me to try Toscano or Black Pearl?"*
-8. Before `dineout__book_table`: confirm restaurant, date, **time spoken naturally** (*"seven-thirty tonight"*, never the slot ID), and party size in one sentence. Then book.
+   Without `band` the panel surfaces a mix and the user reads it as wrong. Don't skip this — it's a one-sentence cost that saves a re-do.
+
+5. **For PATH C, pass `time` to `get_available_slots`.** This centres the panel on the user's original ask — *"7 PM"* → pass `time: "19:00"` — so the panel shows ±2 slots around it (including the unavailable 7 PM dimmed). The user sees their preferred time greyed out and the available alternates next to it.
+
+6. **Similar-vibes fallback:** if `dineout__get_available_slots` returns `RESTAURANT_NOT_BOOKABLE` or the restaurant's `availability` is `FULLY_BOOKED`, proactively search the same area for similar cuisine — *"Toit's full tonight. Same area, similar vibe — want me to try Toscano or Black Pearl?"*
+
+7. Before `dineout__book_table` (PATH A or after PATH B/C picked a slot): announce restaurant, date, **time spoken naturally** (*"seven-thirty tonight"*, never the slot ID), and party size in one sentence. *"Booking Toscano for two tonight at seven-thirty — confirm on the sheet."* The ConfirmationSheet handles consent; don't ask "are you sure?" verbally.
 
 ---
 

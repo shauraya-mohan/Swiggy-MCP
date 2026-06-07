@@ -413,18 +413,18 @@ const DINEOUT_TOOLS: ToolDef[] = [
   {
     server: "dineout",
     name: "book_table",
-    description: "Confirm a table reservation. Confirm restaurant + slot + party size with the user first. Non-idempotent.",
+    description: "Confirm a table reservation. Direct-book path: if the user named a specific time, call this immediately with date+time — DON'T call get_available_slots first. The server checks slot availability internally. If it returns SLOT_UNAVAILABLE, THEN call get_available_slots to show alternates. Non-idempotent.",
     parameters: {
       type: "object",
       properties: {
         restaurantId: { type: "string" },
-        slotId: { type: "string" },
+        slotId: { type: "string", description: "Optional. Pass only if you already called get_available_slots and have a slotId from the panel. For direct booking, omit it." },
         guestCount: { type: "integer" },
-        date: { type: "string" },
-        time: { type: "string", description: "HH:MM 24h." },
+        date: { type: "string", description: "YYYY-MM-DD." },
+        time: { type: "string", description: "HH:MM 24h. The server uses this to verify slot availability when slotId is omitted." },
         specialRequests: { type: "string" },
       },
-      required: ["restaurantId", "slotId", "guestCount", "date", "time"],
+      required: ["restaurantId", "guestCount", "date", "time"],
     },
     isMutation: true,
   },
