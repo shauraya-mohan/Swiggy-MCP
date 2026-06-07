@@ -283,18 +283,27 @@ export default function VoicePage() {
           </div>
         )}
 
-        {/* Pre-mutation gate (bottom centre, above pills). Mutually
-            exclusive with the receipt ConfirmCard — the gate appears
-            FIRST (model paused on tool call), user resolves it, tool
-            actually runs, then the receipt appears. While the sheet
-            is up, the receipt slot is suppressed. */}
-        {manifest.pendingMutation ? (
+        {/* Pre-mutation gate (right side, vertically centred). Mirrors
+            the Negotiator's position so destructive consent shares the
+            same visual real-estate as slot disambiguation — the user's
+            eyes don't have to chase across the screen for the next
+            decision moment. Mutually exclusive with the receipt
+            ConfirmCard — the gate appears FIRST (model paused on tool
+            call), user resolves it, tool actually runs, then the
+            receipt appears in the bottom-centre slot.
+
+            zIndex above the Negotiator so PATH C (book → SLOT_UNAVAILABLE
+            → get_available_slots populates Negotiator → book again on
+            user pick) renders the sheet on top of any stale panel,
+            though the {!pendingMutation} guard on the Negotiator
+            usually prevents the overlap. */}
+        {manifest.pendingMutation && (
           <div
             style={{
               position: "absolute",
-              bottom: 120,
-              left: "50%",
-              transform: "translateX(-50%)",
+              right: "6%",
+              top: "50%",
+              transform: "translateY(-50%)",
               zIndex: 10,
             }}
           >
@@ -308,19 +317,24 @@ export default function VoicePage() {
               }
             />
           </div>
-        ) : (
-          manifest.confirm && (
-            <div
-              style={{
-                position: "absolute",
-                bottom: 120,
-                left: "50%",
-                transform: "translateX(-50%)",
-              }}
-            >
-              <ConfirmCard data={manifest.confirm} />
-            </div>
-          )
+        )}
+
+        {/* Mutation receipt (bottom centre, above pills). Stays in
+            its original slot — the sheet has already cleared by the
+            time the receipt appears, and the agent caption is gone
+            too (it cleared on the response.done that produced the
+            tool result). No collision. */}
+        {!manifest.pendingMutation && manifest.confirm && (
+          <div
+            style={{
+              position: "absolute",
+              bottom: 120,
+              left: "50%",
+              transform: "translateX(-50%)",
+            }}
+          >
+            <ConfirmCard data={manifest.confirm} />
+          </div>
         )}
 
         {/* Voice control + intent quick-jump strip — stacked at the bottom. */}
