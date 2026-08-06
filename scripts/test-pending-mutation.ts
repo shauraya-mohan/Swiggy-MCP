@@ -34,7 +34,9 @@ let passed = 0;
 let failed = 0;
 const failures: string[] = [];
 
-function assert(cond: boolean, name: string, detail?: string): void {
+// Accepts `boolean | undefined` so optional-chained probes (which widen
+// to `boolean | undefined`) pass directly; `undefined` is falsy → fails.
+function assert(cond: boolean | undefined, name: string, detail?: string): void {
   if (cond) {
     passed++;
     console.log(`  ${G}\u2713${X} ${name}${detail ? ` ${D}\u2014 ${detail}${X}` : ""}`);

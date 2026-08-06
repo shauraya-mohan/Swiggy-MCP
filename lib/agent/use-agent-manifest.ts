@@ -21,11 +21,22 @@ import { useLiveProvider } from "@/lib/agent/live-provider";
  * The demo provider keeps ticking in the background even when mode='live'
  * (cheap; just a setTimeout per step), so switching back is seamless.
  */
-export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManifestProvider {
+export function useAgentManifest(
+  initialMode: ProviderMode = "demo",
+  /**
+   * Optional Realtime voice the live session should mint with. Changing
+   * this WHILE in live mode tears the session down and rebuilds it with
+   * the new voice — useful so the Tweaks panel's voice picker has an
+   * audible effect within seconds. In demo mode it's a no-op (no real
+   * session to apply it to).
+   */
+  voice?: string,
+): AgentManifestProvider {
   const [mode, setMode] = useState<ProviderMode>(initialMode);
   const demo = useDemoProvider();
   const live = useLiveProvider();
   const lastModeRef = useRef<ProviderMode>(initialMode);
+  const lastVoiceRef = useRef<string | undefined>(voice);
 
   // Lazily open/close the live session in response to mode changes.
   // Using a ref guard prevents double-start during React 19 StrictMode
@@ -34,11 +45,35 @@ export function useAgentManifest(initialMode: ProviderMode = "demo"): AgentManif
     if (mode === lastModeRef.current) return;
     lastModeRef.current = mode;
     if (mode === "live") {
-      void live.startSession();
+      void live.startSession({ voice });
     } else {
       void live.endSession();
     }
+    // `voice` intentionally excluded from deps — this effect is keyed
+    // on mode transitions only. Voice changes get their own effect
+    // below. If both changed in the same tick (rare), the voice effect
+    // wins because it runs second and explicitly restarts the session.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mode, live]);
+
+  // Restart the session when the voice changes WHILE in live mode.
+  // No-op in demo (no session to restart) and on the very first render
+  // (lastVoiceRef seeded equal to current). We tear down before bringing
+  // up so the underlying WebRTC peer connection is fully released —
+  // OpenAI charges per session and the realtime-client cleanup also
+  // closes the AudioContexts that would otherwise leak.
+  useEffect(() => {
+    if (voice === lastVoiceRef.current) return;
+    lastVoiceRef.current = voice;
+    if (mode !== "live") return;
+    (async () => {
+      await live.endSession();
+      await live.startSession({ voice });
+    })();
+    // mode intentionally excluded — we don't want a mode flip to also
+    // trigger this branch; that's handled by the mode effect above.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voice, live]);
 
   const manifest: AgentManifest = mode === "demo" ? demo.manifest : live.manifest;
 

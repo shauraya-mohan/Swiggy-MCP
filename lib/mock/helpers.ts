@@ -25,22 +25,8 @@ export function nowIso(): string {
   return new Date().toISOString();
 }
 
-export function nowSpoken(deltaMin: number): string {
-  if (deltaMin < 5) return "a few minutes";
-  if (deltaMin < 12) return "about ten minutes";
-  if (deltaMin < 18) return "about fifteen minutes";
-  if (deltaMin < 25) return "about twenty minutes";
-  if (deltaMin < 35) return "about thirty minutes";
-  if (deltaMin < 50) return "about forty-five minutes";
-  return "about an hour";
-}
-
 export function lowerIncludes(haystack: string, needle: string): boolean {
   return haystack.toLowerCase().includes(needle.toLowerCase());
-}
-
-export function round2(n: number): number {
-  return Math.round(n * 100) / 100;
 }
 
 // ===========================================================================

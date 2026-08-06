@@ -10,7 +10,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { toolsForOpenAI } from "../mcp/router";
 
-/** Built-in voices. marin and cedar are recommended for best quality. */
+/** Built-in OpenAI Realtime voices. `sage` is our production pick (calm,
+ *  measured, neutral) — see buildSessionConfig's default. */
 export type RealtimeVoice =
   | "alloy"
   | "ash"
@@ -26,8 +27,10 @@ export type RealtimeVoice =
 /**
  * GA Realtime output modalities. Note: unlike the legacy beta endpoint, GA
  * accepts EXACTLY ONE of "audio" or "text" — you can't request both.
- *  - ["audio"] : model speaks; also emits a transcript stream
- *  - ["text"]  : model emits text only; pair with external TTS (e.g. Cartesia)
+ *  - ["audio"] : model speaks; also emits a transcript stream (what we use —
+ *                OpenAI's native voice `sage` carries the agent's speech)
+ *  - ["text"]  : model emits text only; would need an external TTS to speak.
+ *                Kept as an option but not used — we ship native audio out.
  */
 export type RealtimeModality = "audio" | "text";
 
@@ -43,7 +46,7 @@ export type RealtimeModality = "audio" | "text";
 export type TurnDetection = "manual" | "server_vad";
 
 export interface SessionConfigOptions {
-  /** Default ["audio"]. Flip to ["text"] when Cartesia TTS lands in Step 7. */
+  /** Default ["audio"] — native voice out. ["text"] only if pairing an external TTS. */
   outputModalities?: RealtimeModality[];
   voice?: RealtimeVoice;
   /** 1.0 default, 0.25..1.5 allowed. */
@@ -227,7 +230,14 @@ export function buildSessionConfig(opts: SessionConfigOptions = {}): ClientSecre
           noise_reduction: { type: "far_field" },
         },
         output: {
-          voice: opts.voice ?? "marin",
+          // Default voice is `sage` — measured, neutral, calm-advisor
+          // timbre. Chosen after A/B-ing the full modern set (marin,
+          // cedar, verse, ash, coral, ballad, sage) against the
+          // Kitchen Copilot persona: a non-theatrical assistant
+          // that has to read prices, MOQs, and slot times cleanly
+          // without sounding like a barista or a podcast host.
+          // Override via opts.voice if you're experimenting.
+          voice: opts.voice ?? "sage",
           speed: opts.speed ?? 1.0,
         },
       },

@@ -9,18 +9,40 @@ import type { AuraState, IntentMode, ProviderMode } from "@/lib/agent/manifest";
  * TweaksPanel — toolbar-toggled developer panel for runtime knobs.
  *
  * Sections: Mode (demo/live), Glass blur intensity, Accent swatches,
- * Intent override, Aura state override. Mirrors the prototype's panel +
- * adds the demo/live mode switch (the new control versus the prototype).
+ * Intent override, Aura state override.
+ *
+ * NOTE on voice: we A/B'd the full modern OpenAI Realtime set
+ * (marin, cedar, verse, ash, coral, ballad, sage) and landed on
+ * `sage` as the production voice — measured, neutral, calm-advisor.
+ * The picker is intentionally removed from the panel; the field is
+ * still in TweaksState + plumbed through useAgentManifest in case we
+ * want to A/B again later, but the UI doesn't expose it. To
+ * experiment, hit /api/voice/session?voice=<name> directly or flip
+ * DEFAULT_TWEAKS.voice below.
  */
 
 export type TweaksIntent = "auto" | IntentMode;
 export type TweaksAura = "auto" | AuraState;
+
+/**
+ * OpenAI Realtime voice — kept as a typed field for the API surface,
+ * but the picker is no longer rendered in the panel. See note above.
+ */
+export type TweaksVoice =
+  | "marin"
+  | "cedar"
+  | "verse"
+  | "ash"
+  | "coral"
+  | "ballad"
+  | "sage";
 
 export interface TweaksState {
   glassBlur: number; // 0..100
   accent: string;
   intent: TweaksIntent;
   auraState: TweaksAura;
+  voice: TweaksVoice;
 }
 
 export const DEFAULT_TWEAKS: TweaksState = {
@@ -28,6 +50,7 @@ export const DEFAULT_TWEAKS: TweaksState = {
   accent: "#FC8019",
   intent: "auto",
   auraState: "auto",
+  voice: "sage",
 };
 
 const ACCENT_SWATCHES = ["#FC8019", "#6FD8C8", "#B380FF", "#FFD166"];

@@ -20,6 +20,7 @@
     "test:turn-control": "tsx scripts/test-turn-control.ts",
     "test:pending-mutation": "tsx scripts/test-pending-mutation.ts",
     "test:dineout-direct-book": "tsx scripts/test-dineout-direct-book.ts",
+    "generate:demo-audio": "tsx scripts/generate-demo-audio.ts",
     "test": "npm run typecheck && npm run test:mocks && npm run test:scenarios && npm run test:router && npm run test:auth && npm run test:voice && npm run test:realtime && npm run test:tool-mapper && npm run test:turn-control && npm run test:pending-mutation && npm run test:dineout-direct-book"
   },
   "dependencies": {

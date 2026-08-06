@@ -31,8 +31,12 @@ import { blurPercentToPx } from "@/lib/design/tokens";
 // the bottom of the slice. The mask + scroll already handle overflow.
 
 export default function VoicePage() {
-  const provider = useAgentManifest("demo");
   const [tweaks, setTweaks] = useState<TweaksState>(DEFAULT_TWEAKS);
+  // Pass the current voice into the manifest hook — it tears down and
+  // rebuilds the live session whenever this changes (only if currently
+  // in live mode). Default voice ("sage") matches the route's default,
+  // so the very first session mint doesn't need a query-param.
+  const provider = useAgentManifest("demo", tweaks.voice);
 
   // Live-apply tweak CSS vars (blur + accent swatches).
   useEffect(() => {
@@ -116,11 +120,14 @@ export default function VoicePage() {
           <IntentIndicator intent={effectiveIntent} />
         </div>
 
-        {/* Top-right step counter (demo mode shows the full counter; live mode just play/pause). */}
+        {/* Top-right play/pause. The step-count badge (07/18) is deliberately
+            never shown here — it's the single biggest tell that this is a
+            fixed-length script rather than a live session. `total={0}`
+            keeps StepCounter's counter branch dark in both modes. */}
         <div style={{ position: "absolute", top: 28, right: 32 }}>
           <StepCounter
             step={provider.step}
-            total={provider.mode === "demo" ? provider.totalSteps : 0}
+            total={0}
             isPlaying={provider.isPlaying}
             onToggle={provider.togglePlay}
           />
@@ -290,7 +297,7 @@ export default function VoicePage() {
             decision moment. Mutually exclusive with the receipt
             ConfirmCard — the gate appears FIRST (model paused on tool
             call), user resolves it, tool actually runs, then the
-            receipt appears in the bottom-centre slot.
+            receipt appears in this same right-side slot.
 
             zIndex above the Negotiator so PATH C (book → SLOT_UNAVAILABLE
             → get_available_slots populates Negotiator → book again on
@@ -319,18 +326,21 @@ export default function VoicePage() {
           </div>
         )}
 
-        {/* Mutation receipt (bottom centre, above pills). Stays in
-            its original slot — the sheet has already cleared by the
-            time the receipt appears, and the agent caption is gone
-            too (it cleared on the response.done that produced the
-            tool result). No collision. */}
-        {!manifest.pendingMutation && manifest.confirm && (
+        {/* Mutation receipt — shares the Negotiator/ConfirmationSheet's
+            right-side real estate rather than sitting bottom-centre. That
+            slot used to be directly above the VoiceButton + intent pills,
+            which is a tight band on shorter viewports: a receipt with a
+            two-line subtitle (or a caption that hadn't fully cleared yet)
+            would collide with the button below it. Right-of-aura has
+            nothing else competing for space once the Negotiator/sheet
+            have cleared (guarded below), so it never gets cramped. */}
+        {!manifest.pendingMutation && !manifest.negotiator && manifest.confirm && (
           <div
             style={{
               position: "absolute",
-              bottom: 120,
-              left: "50%",
-              transform: "translateX(-50%)",
+              right: "6%",
+              top: "50%",
+              transform: "translateY(-50%)",
             }}
           >
             <ConfirmCard data={manifest.confirm} />
@@ -353,7 +363,9 @@ export default function VoicePage() {
           <VoiceButton
             mode={provider.mode}
             connected={!!provider.liveConnected}
-            isListening={!!provider.isListening}
+            isListening={
+              provider.mode === "demo" ? effectiveAura === "listening" : !!provider.isListening
+            }
             auraState={effectiveAura}
             error={provider.liveError ?? null}
             onAction={(action: VoiceButtonAction) => {

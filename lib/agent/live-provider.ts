@@ -43,7 +43,13 @@ import type { SwiggyResponse } from "@/lib/mock/types";
  */
 export interface LiveProviderState {
   manifest: AgentManifest;
-  startSession: () => Promise<void>;
+  /**
+   * Open a Realtime session. Optional `voice` argument selects which
+   * OpenAI voice the agent speaks in; defaults to whatever the server
+   * route picks (currently `sage`). Idempotent — calling while a
+   * session is already open is a no-op (use `endSession` first).
+   */
+  startSession: (opts?: { voice?: string }) => Promise<void>;
   endSession: () => Promise<void>;
   /** Push-to-talk: open the floor. Enables mic, clears the input buffer,
    *  flips aura → listening. */
@@ -437,14 +443,20 @@ export function useLiveProvider(): LiveProviderState {
     [patchManifest],
   );
 
-  const startSession = useCallback(async () => {
+  const startSession = useCallback(async (opts?: { voice?: string }) => {
     if (sessionRef.current || startingRef.current) return;
     startingRef.current = true;
     setLiveError(null);
 
     try {
-      // Mint an ephemeral token.
-      const tokenResp = await fetch("/api/voice/session", { method: "POST" });
+      // Mint an ephemeral token. Voice override is passed as a query
+      // param — the route validates against ALLOWED_VOICES and falls
+      // back to the default silently if it's unknown, so a typo here
+      // never breaks the session.
+      const url = opts?.voice
+        ? `/api/voice/session?voice=${encodeURIComponent(opts.voice)}`
+        : "/api/voice/session";
+      const tokenResp = await fetch(url, { method: "POST" });
       const tokenJson = (await tokenResp.json()) as
         | { success: true; data: { clientSecret: string; model: string; sessionId: string } }
         | { success: false; error: { code: string; message: string } };

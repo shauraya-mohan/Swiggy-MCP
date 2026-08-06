@@ -6,7 +6,7 @@ This version (Next 16+) has breaking changes — APIs, conventions, and file str
 
 ## Project — Kitchen Copilot
 
-Voice-first AI agent that wires OpenAI Realtime + Cartesia Sonic-2 TTS to the three Swiggy MCP servers (Food, Instamart, Dineout).
+Voice-first AI agent that wires the OpenAI Realtime API (native speech in, reasoning, and speech out — voice `sage`) to the three Swiggy MCP servers (Food, Instamart, Dineout).
 
 ## External docs — Swiggy Builders Club
 
@@ -26,7 +26,7 @@ See [docs/Kitchen_Copilot_Full_Detailed_PRD.md](docs/Kitchen_Copilot_Full_Detail
 
 ## Where the product actually lives
 
-**The system prompt is the product.** Mocks, the tool router, and the voice plumbing are scaffolding — replaceable, finite, well-specified by the docs. The thing that turns 35 generic Swiggy tools into "Kitchen Copilot" is the system prompt fed to the OpenAI Realtime brain (and the per-module sub-prompts under `agent/modules/`).
+**The system prompt is the product.** Mocks, the tool router, and the voice plumbing are scaffolding — replaceable, finite, well-specified by the docs. The thing that turns 35 generic Swiggy tools into "Kitchen Copilot" is the system prompt fed to the OpenAI Realtime brain — `agent/prompts/system.md`, which carries the persona plus the Scout / Auditor / Negotiator module rules in one file.
 
 Implications for how we work:
 
@@ -48,7 +48,7 @@ When writing system prompts or response shaping:
 
 ## Safety rails
 
-- `place_food_order` / `checkout` / `book_table` are **non-idempotent**. Use check-then-retry via `lib/mcp/idempotency.ts`.
+- `place_food_order` / `checkout` / `book_table` are **non-idempotent**. They're gated two ways: a UI ConfirmationSheet (`components/cards/ConfirmationSheet.tsx`) before the call fires, and the `LIVE_MUTATIONS` kill-switch in `lib/mcp/router.ts` against the real MCP. On retry, recover via the read-only `get_booking_status` / order-status tools rather than re-firing.
 - `LIVE_MUTATIONS=false` blocks those 3 tools even in real mode.
 - Tokens only in HttpOnly cookies — never localStorage, never logs.
 - ₹1000 Food cart cap, ₹99 Instamart minimum.

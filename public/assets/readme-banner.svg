@@ -1,0 +1,80 @@
+<svg width="1200" height="260" viewBox="0 0 1200 260" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <radialGradient id="bg" cx="50%" cy="34%" r="80%">
+      <stop offset="0%" stop-color="#1d1916"/>
+      <stop offset="55%" stop-color="#14110f"/>
+      <stop offset="100%" stop-color="#0a0908"/>
+    </radialGradient>
+    <radialGradient id="orbGlow" cx="50%" cy="50%" r="50%">
+      <stop offset="0%" stop-color="#FC8019" stop-opacity="0.55"/>
+      <stop offset="55%" stop-color="#FC8019" stop-opacity="0.12"/>
+      <stop offset="100%" stop-color="#FC8019" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="orb" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#ff9e4d"/>
+      <stop offset="100%" stop-color="#d96a0c"/>
+    </linearGradient>
+    <linearGradient id="chip" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#f5efe7" stop-opacity="0.05"/>
+      <stop offset="100%" stop-color="#f5efe7" stop-opacity="0.02"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1200" height="260" fill="url(#bg)"/>
+
+  <!-- ambient embers -->
+  <g fill="#FC8019">
+    <circle cx="120" cy="36" r="2.5" opacity="0.45"/>
+    <circle cx="300" cy="20" r="1.8" opacity="0.35"/>
+    <circle cx="900" cy="42" r="2.5" opacity="0.4"/>
+    <circle cx="1060" cy="26" r="1.8" opacity="0.3"/>
+    <circle cx="50" cy="80" r="1.8" opacity="0.35"/>
+    <circle cx="1140" cy="96" r="2.2" opacity="0.4"/>
+  </g>
+
+  <!-- the Aura - one voice, glowing -->
+  <circle cx="110" cy="128" r="82" fill="url(#orbGlow)"/>
+  <circle cx="110" cy="128" r="46" fill="none" stroke="#ff9e4d" stroke-width="1.5" opacity="0.28"/>
+  <circle cx="110" cy="128" r="30" fill="url(#orb)"/>
+
+  <!-- steam, curling off the orb -->
+  <g stroke="#ff9e4d" stroke-width="1.6" fill="none" opacity="0.4" stroke-linecap="round">
+    <path d="M92 84 C 86 70, 100 64, 94 50 C 90 40, 98 34, 96 24"/>
+    <path d="M110 78 C 104 64, 118 58, 112 44 C 108 34, 116 28, 114 18"/>
+    <path d="M128 84 C 134 70, 120 64, 126 50 C 130 40, 122 34, 124 24"/>
+  </g>
+
+  <text x="110" y="196" text-anchor="middle" font-family="'JetBrains Mono', ui-monospace, monospace" font-size="10.5" letter-spacing="2.2" fill="#8a8276">ONE VOICE</text>
+
+  <!-- three surfaces, one agent -->
+  <g font-family="'JetBrains Mono', ui-monospace, monospace">
+    <g>
+      <rect x="230" y="82" width="220" height="96" rx="14" fill="url(#chip)" stroke="#f5efe7" stroke-opacity="0.10"/>
+      <circle cx="256" cy="110" r="4" fill="#FFB070"/>
+      <text x="256" y="140" font-size="15" letter-spacing="1" fill="#f5efe7">SCOUT</text>
+      <text x="256" y="160" font-size="9.5" letter-spacing="0.3" fill="#8a8276">swiggy food - menus &amp; delivery</text>
+    </g>
+    <g>
+      <rect x="490" y="82" width="220" height="96" rx="14" fill="url(#chip)" stroke="#f5efe7" stroke-opacity="0.10"/>
+      <circle cx="516" cy="110" r="4" fill="#FC8019"/>
+      <text x="516" y="140" font-size="15" letter-spacing="1" fill="#f5efe7">AUDITOR</text>
+      <text x="516" y="160" font-size="9.5" letter-spacing="0.3" fill="#8a8276">instamart - recipe gap-fill</text>
+    </g>
+    <g>
+      <rect x="750" y="82" width="220" height="96" rx="14" fill="url(#chip)" stroke="#f5efe7" stroke-opacity="0.10"/>
+      <circle cx="776" cy="110" r="4" fill="#6FD8C8"/>
+      <text x="776" y="140" font-size="15" letter-spacing="1" fill="#f5efe7">NEGOTIATOR</text>
+      <text x="776" y="160" font-size="9.5" letter-spacing="0.3" fill="#8a8276">dineout - slots &amp; the table</text>
+    </g>
+  </g>
+
+  <!-- ticks along the right edge, echoing a waveform tail -->
+  <g stroke="#FC8019" stroke-width="1.5" opacity="0.22">
+    <line x1="1010" y1="250" x2="1010" y2="234"/><line x1="1026" y1="250" x2="1026" y2="224"/>
+    <line x1="1042" y1="250" x2="1042" y2="240"/><line x1="1058" y1="250" x2="1058" y2="230"/>
+    <line x1="1074" y1="250" x2="1074" y2="238"/><line x1="1090" y1="250" x2="1090" y2="222"/>
+    <line x1="1106" y1="250" x2="1106" y2="236"/><line x1="1122" y1="250" x2="1122" y2="226"/>
+    <line x1="1138" y1="250" x2="1138" y2="240"/><line x1="1154" y1="250" x2="1154" y2="228"/>
+    <line x1="1170" y1="250" x2="1170" y2="234"/><line x1="1186" y1="250" x2="1186" y2="222"/>
+  </g>
+</svg>

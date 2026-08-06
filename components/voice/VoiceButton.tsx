@@ -6,14 +6,24 @@ import type { AuraState } from "@/lib/agent/manifest";
 /**
  * VoiceButton — the single tap target that drives the entire conversation.
  *
- * State machine (all live mode unless noted):
- *   demo-mode               → "Start voice"   tap → opens Realtime session
+ * State machine:
+ *   demo + idle/success     → "Tap to talk"   inert (mirrors live's resting label)
+ *   demo + listening        → "Tap to send"   inert
+ *   demo + thinking         → "Thinking…"     inert, busy
+ *   demo + speaking         → "Interrupt"     inert
  *   live + connecting       → "Connecting…"   busy, no-op
  *   live + errored          → "Retry"         tap → re-opens session
  *   live + idle             → "Tap to talk"   tap → enables mic, clears buffer
  *   live + listening        → "Tap to send"   tap → commits buffer + asks for response
  *   live + thinking         → "Thinking…"     busy, no-op while the model composes
  *   live + speaking         → "Interrupt"     tap → cancels the in-progress response
+ *
+ * Demo mode deliberately mirrors live's labels off the same `auraState`
+ * instead of showing a distinct "Start voice" CTA — a button that visibly
+ * invites "click to go live" is both a giveaway that the run is scripted
+ * and a live footgun (an accidental tap mid-recording would open a real,
+ * billed Realtime session and prompt for mic access). Switching into live
+ * mode is still available from the Tweaks panel.
  *
  * This is a debug/dev affordance per the build plan. Once the prompt + agent
  * modules are stable we plan to drop the button and let server VAD drive
@@ -50,7 +60,18 @@ function resolve({
   error,
 }: Omit<VoiceButtonProps, "onAction">): ButtonView {
   if (mode === "demo") {
-    return { label: "Start voice", action: "openSession", busy: false, tone: "neutral" };
+    // Same labels a live session would show for this aura state, but
+    // every action is "noop" — there's no real session underneath.
+    switch (auraState) {
+      case "listening":
+        return { label: "Tap to send", action: "noop", busy: false, tone: "live" };
+      case "thinking":
+        return { label: "Thinking…", action: "noop", busy: true, tone: "muted" };
+      case "speaking":
+        return { label: "Interrupt", action: "noop", busy: false, tone: "muted" };
+      default:
+        return { label: "Tap to talk", action: "noop", busy: false, tone: "primary" };
+    }
   }
   if (error) {
     return { label: "Retry voice", action: "openSession", busy: false, tone: "danger" };

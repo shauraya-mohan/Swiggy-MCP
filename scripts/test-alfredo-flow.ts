@@ -16,6 +16,14 @@ import type { CardData } from "../lib/agent/manifest";
 
 store.resetAll();
 
+// Narrow a SwiggyResponse to its success payload. The mock always
+// succeeds in this smoke, so a failure here is a genuine test bug — we
+// throw rather than limp on with `any`.
+function okData<T>(r: SwiggyResponse<T>): T {
+  if (!r.success) throw new Error(`expected success, got error: ${r.error.message}`);
+  return r.data;
+}
+
 let cards: CardData[] | undefined = undefined;
 let HOME = "";
 
@@ -68,7 +76,7 @@ async function main() {
 
   // 2. User confirms — agent batches them into one update_cart.
   const ingr = [butter, cream, garlic].map((r) => {
-    const d = (r as SwiggyResponse<{ products: Product[] }>).data;
+    const d = okData(r as SwiggyResponse<{ products: Product[] }>);
     return d.products[0];
   });
   const batchItems = ingr.map((p) => ({
@@ -86,7 +94,7 @@ async function main() {
   applyToolResult("im", "search_products", milk);
 
   // 4. User: "1L please". Agent goes straight to update_cart with the 1L SPIN.
-  const milkProd = (milk as SwiggyResponse<{ products: Product[] }>).data.products[0];
+  const milkProd = okData(milk as SwiggyResponse<{ products: Product[] }>).products[0];
   const milk1L = milkProd.variants.find((v) => /1\s?l/i.test(v.name) && v.inStock) ?? milkProd.variants.find((v) => v.inStock)!;
   const milkAdd = await callMockTool("im", "update_cart", {
     addressId: HOME,
@@ -95,7 +103,7 @@ async function main() {
   applyToolResult("im", "update_cart", milkAdd);
 
   // 5. The cart inside the mock should still hold all 4 items.
-  const cartNow = (milkAdd as SwiggyResponse<InstamartCart>).data;
+  const cartNow = okData(milkAdd as SwiggyResponse<InstamartCart>);
   console.log(`\n=== final cart state from update_cart response ===`);
   console.log(`    items: ${cartNow.items.length}`);
   for (const i of cartNow.items) {

@@ -6,15 +6,40 @@
 //
 // Targets the GA endpoint:
 //   https://developers.openai.com/api/reference/resources/realtime/subresources/client_secrets/
+//
+// Optional query params:
+//   ?voice=<voice>  — override the default voice (sage). Validated against
+//                     the set defined in lib/voice/session-config.ts. Unknown
+//                     or invalid values are silently dropped to the default
+//                     rather than 400'd — voice is cosmetic, not load-bearing.
 
-import { NextResponse } from "next/server";
-import { buildSessionConfig } from "../../../../lib/voice/session-config";
+import { NextRequest, NextResponse } from "next/server";
+import {
+  buildSessionConfig,
+  type RealtimeVoice,
+} from "../../../../lib/voice/session-config";
 
 export const dynamic = "force-dynamic";
 
 const OPENAI_CLIENT_SECRETS_URL = "https://api.openai.com/v1/realtime/client_secrets";
 
-export async function POST() {
+// Kept in sync with RealtimeVoice in lib/voice/session-config.ts.
+// Centralised here too so the route can validate without importing the
+// type system. Drift between the two is caught by scripts/test-voice.ts.
+const ALLOWED_VOICES: ReadonlySet<RealtimeVoice> = new Set<RealtimeVoice>([
+  "alloy",
+  "ash",
+  "ballad",
+  "coral",
+  "echo",
+  "sage",
+  "shimmer",
+  "verse",
+  "marin",
+  "cedar",
+]);
+
+export async function POST(req: NextRequest) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) {
     return NextResponse.json(
@@ -29,9 +54,18 @@ export async function POST() {
     );
   }
 
+  // Optional voice override. Silent fallback to default if the value is
+  // missing or not one of ALLOWED_VOICES — a typo in the URL shouldn't
+  // 400 the session, the user just hears the default.
+  const requestedVoice = req.nextUrl.searchParams.get("voice");
+  const voice: RealtimeVoice | undefined =
+    requestedVoice && ALLOWED_VOICES.has(requestedVoice as RealtimeVoice)
+      ? (requestedVoice as RealtimeVoice)
+      : undefined;
+
   let config;
   try {
-    config = buildSessionConfig();
+    config = buildSessionConfig(voice ? { voice } : undefined);
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to build session config";
     return NextResponse.json(

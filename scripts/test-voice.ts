@@ -16,8 +16,10 @@ import {
   buildSessionConfig,
   buildTimeContextBlock,
   loadSystemPrompt,
+  type RealtimeVoice,
 } from "../lib/voice/session-config";
 import { TOOLS } from "../lib/mcp/manifest";
+import { DEFAULT_TWEAKS } from "../components/tweaks/TweaksPanel";
 
 const G = "\x1b[32m";
 const R = "\x1b[31m";
@@ -65,6 +67,37 @@ async function main() {
   // 2. Voice contract rules are in the prompt (drift detection)
   // -----------------------------------------------------------------------
   section("Voice contract rules present in prompt");
+
+  // -----------------------------------------------------------------------
+  // 1b. Persona — Kitchen Copilot v2 character lock
+  //
+  // The persona section near the top of system.md defines who she is.
+  // It pairs with the sage voice and was tuned with the user — see the
+  // pending_tasks entry agent_persona_v2 in the conversation history.
+  // Drift here would make her sound like a generic assistant again, so
+  // we pin the load-bearing clauses.
+  // -----------------------------------------------------------------------
+  section("Persona — Kitchen Copilot v2 character lock");
+
+  const personaClauses: Array<[string, RegExp]> = [
+    ["she/her pronouns enforced", /[Ss]he\/her/],
+    ["explicitly named as a woman", /\ba woman\b/i],
+    ["Sous Chef archetype", /[Ss]ous [Cc]hef/],
+    ["Maitre D' archetype", /[Mm]aitre [Dd]/],
+    ["good buddy framing", /\bgood buddy\b/i],
+    ["opinions, not just enumeration", /\bopinions?\b/i],
+    ["chatbot tics killed (Certainly)", /Certainly!/],
+    ["chatbot tics killed (Absolutely)", /Absolutely!/],
+    ["AI deflections killed (As an AI)", /As an AI/],
+    ["cross-language section present", /[Aa]cross languages/],
+    ["mirrors user's language", /[Mm]irror what the user|same person.{0,8}in any language/],
+    ["Hinglish examples grounded", /[Hh]inglish/],
+    ["no forced 'yaar' tic", /forced.*yaar|don't.*yaar/i],
+  ];
+
+  for (const [label, re] of personaClauses) {
+    assert(re.test(prompt), `persona encodes: ${label}`);
+  }
 
   const voiceContractClauses: Array<[string, RegExp]> = [
     ["max 3 items", /Maximum 3 items/i],
@@ -241,16 +274,64 @@ async function main() {
   });
   assert(
     customized.session.output_modalities.length === 1 && customized.session.output_modalities[0] === "text",
-    "output_modalities can be narrowed to text-only (Step 7: Cartesia path)",
+    "output_modalities can be narrowed to text-only (external-TTS path, unused)",
   );
   assert(customized.session.audio.output.voice === "cedar", "voice override applied");
   assert(customized.session.audio.output.speed === 1.2, "speed override applied");
   assert(customized.expires_after?.seconds === 1800, "TTL override applied");
 
   // -----------------------------------------------------------------------
+  // 8. Production voice — locked to `sage`
+  //
+  // After A/B-ing the full modern voice set we landed on `sage`. This
+  // block locks the production default in three places (server config,
+  // tweaks default, route allowlist) so nobody silently flips us back
+  // to marin/cedar/etc. without thinking about it. The override path
+  // (buildSessionConfig({ voice }) / ?voice= query param) is kept
+  // intact so we can A/B again later without a code change.
+  // -----------------------------------------------------------------------
+  section("Production voice — locked to sage");
+
+  const ALLOWED_VOICES_MIRROR: ReadonlySet<RealtimeVoice> = new Set<RealtimeVoice>([
+    "alloy",
+    "ash",
+    "ballad",
+    "coral",
+    "echo",
+    "sage",
+    "shimmer",
+    "verse",
+    "marin",
+    "cedar",
+  ]);
+
+  const defaultCfg = buildSessionConfig();
+  assert(
+    defaultCfg.session.audio.output.voice === "sage",
+    "buildSessionConfig() defaults to 'sage'",
+    defaultCfg.session.audio.output.voice,
+  );
+  assert(
+    DEFAULT_TWEAKS.voice === "sage",
+    "DEFAULT_TWEAKS.voice is 'sage'",
+    DEFAULT_TWEAKS.voice,
+  );
+  assert(
+    ALLOWED_VOICES_MIRROR.has("sage"),
+    "'sage' is in the route's ALLOWED_VOICES allowlist",
+  );
+
+  // The override path still works for anyone wanting to A/B again.
+  const overrideCfg = buildSessionConfig({ voice: "cedar" });
+  assert(
+    overrideCfg.session.audio.output.voice === "cedar",
+    "voice override path still works ({ voice: 'cedar' })",
+  );
+
+  // -----------------------------------------------------------------------
   console.log("");
   if (failed === 0) {
-    console.log(`${G}\u2713 ${passed} assertions across 7 voice-session checks all green.${X}\n`);
+    console.log(`${G}\u2713 ${passed} assertions across 8 voice-session checks all green.${X}\n`);
     process.exit(0);
   } else {
     console.log(`${R}\u2717 ${failed} of ${passed + failed} assertions failed:${X}`);

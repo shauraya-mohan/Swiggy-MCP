@@ -46,7 +46,11 @@ let passed = 0;
 let failed = 0;
 const failures: string[] = [];
 
-function assert(cond: boolean, name: string, detail?: string): void {
+// `cond` accepts `boolean | undefined` so optional-chained probes like
+// `patch?.confirm?.title.includes("cart")` (which the compiler widens to
+// `boolean | undefined`) can be passed directly. `undefined` is falsy →
+// fails the assertion, which is exactly what we want.
+function assert(cond: boolean | undefined, name: string, detail?: string): void {
   if (cond) {
     passed++;
     console.log(`  ${G}\u2713${X} ${name}${detail ? ` ${D}\u2014 ${detail}${X}` : ""}`);

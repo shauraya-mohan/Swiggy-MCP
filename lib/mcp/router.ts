@@ -6,7 +6,7 @@
 //   3. Apply the LIVE_MUTATIONS kill-switch on the three non-idempotent tools.
 //   4. Dispatch by SWIGGY_MODE:
 //        - mock  → callMockTool() in lib/mock
-//        - real  → throws NOT_IMPLEMENTED (lands in Step 4)
+//        - real  → callRealTool() in lib/mcp/client (OAuth'd streamable-HTTP)
 //   5. Return a uniform SwiggyResponse envelope.
 //
 // Anything richer (per-flow rules, multi-tool orchestration, voice-contract
